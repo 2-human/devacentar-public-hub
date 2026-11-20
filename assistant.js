@@ -255,10 +255,27 @@
   input.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); q('.asst-form').requestSubmit(); } });
 
   var lastTurn = ls.get('lastTurn', null);
+  /* a step the model asked for that never ran (the page reloaded while a card waited) gets a "not run" answer, or
+   * Claude refuses the whole conversation; the server does the same for any client */
+  function repairHistory() {
+    for (var i = 0; i < messages.length; i++) {
+      var m = messages[i]; if (m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+      var ids = m.content.filter(function (b) { return b.type === 'tool_use'; }).map(function (b) { return b.id; }); if (!ids.length) continue;
+      var nx = messages[i + 1], blocks = nx && nx.role === 'user' ? (typeof nx.content === 'string' ? [{ type: 'text', text: nx.content }] : nx.content) : null;
+      var have = blocks ? blocks.filter(function (b) { return b.type === 'tool_result'; }).map(function (b) { return b.tool_use_id; }) : [];
+      var missing = ids.filter(function (id) { return have.indexOf(id) < 0; }).map(function (id) { return { type: 'tool_result', tool_use_id: id, content: 'not run: the page was reloaded or the step was interrupted before it finished', is_error: true }; });
+      if (!missing.length) continue;
+      if (blocks) messages[i + 1] = { role: 'user', content: blocks.filter(function (b) { return b.type === 'tool_result'; }).concat(missing, blocks.filter(function (b) { return b.type !== 'tool_result'; })) };
+      else messages.splice(i + 1, 0, { role: 'user', content: missing });
+    }
+  }
   function send(text) {
+    repairHistory();
     if (shown.length === 0) log.innerHTML = '';
     addShown('user', text, { focus: focusInfo ? focusInfo.label : null });
-    messages.push({ role: 'user', content: [{ type: 'text', text: context() }, { type: 'text', text: text }] });
+    var blocks = [{ type: 'text', text: context() }, { type: 'text', text: text }], last = messages[messages.length - 1];
+    if (last && last.role === 'user' && Array.isArray(last.content)) last.content = last.content.concat(blocks);   // after a repaired step: one user message
+    else messages.push({ role: 'user', content: blocks });
     save(); loop();
   }
 
