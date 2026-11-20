@@ -88,7 +88,7 @@
       var f = window.prompt('What should the coding agent change in this version?'); if (!f || !f.trim()) return;
       return revise(id, f.trim()).then(function () {}, function (e) { window.alert(e.message); });
     }
-    var q = { approve: 'Publish this change to centardeva.com now?', revert: 'Undo this change on centardeva.com?', discard: 'Discard this proposal?' }[what];
+    var q = { approve: 'Publish this change to centardeva.com now?', revert: 'Undo this change on centardeva.com?', discard: 'Discard this proposal?', retry: 'Try this change again? If the agent already made it, only the preview is rebuilt (no cost).' }[what];
     if (!window.confirm(q)) return;
     api('/changes/' + id + '/' + what, { method: 'POST', body: '{}' }).then(function () { H.say ? H.say('Done') : 0; return list(); }).then(redraw, function (e) { window.alert(e.message); });
   }
@@ -131,6 +131,7 @@
     if (admin && ['proposed', 'failed'].indexOf(c.status) >= 0 && (c.lane !== 'code' || c.preview)) a.push('<button type="button" class="sitepv-go" data-chg="approve" data-id="' + esc(c.id) + '"' + (publishing ? '' : ' disabled title="Publishing is not set up yet"') + '>Approve and publish</button>');
     if (['proposed', 'failed'].concat(c.lane === 'code' ? ['building'] : []).indexOf(c.status) >= 0 && (admin || c.by === you.uid)) a.push('<button type="button" data-chg="discard" data-id="' + esc(c.id) + '">Discard</button>');
     if (admin && c.status === 'published') a.push('<button type="button" data-chg="revert" data-id="' + esc(c.id) + '">Undo on the site</button>');
+    if (c.lane === 'code' && c.status === 'failed' && (admin || c.by === you.uid)) a.push('<button type="button" class="sitepv-go" data-chg="retry" data-id="' + esc(c.id) + '">Try again</button>');
     if (c.lane === 'code' && ['proposed', 'failed'].indexOf(c.status) >= 0) a.push('<button type="button" data-chg="revise" data-id="' + esc(c.id) + '">Ask for changes</button>');
     return a.length ? '<div class="sitepv-actions" data-pick-pass>' + a.join('') + '</div>' : '';
   }
