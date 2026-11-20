@@ -10,3 +10,6 @@
 
 /* main-column back/forward (trail.js), beside the breadcrumb */
 .pg-arrows{display:inline-flex;gap:4px;margin-right:8px}
+
+/* Brand › Exploration: the guidelines page, as tall as its content */
+.brand-frame { display: block; width: 100%; min-height: 70vh; border: 1px solid var(--hub-line); border-radius: 8px; background: #F7F5F0; }
