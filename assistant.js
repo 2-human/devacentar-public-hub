@@ -451,8 +451,9 @@
           return confirmCard(c, 'Send this to the coding agent', i.feedback, 'It adjusts the same copy of the site (a few minutes, paid model); the preview updates when it is done.', 'Send', function () {
             return HubSite.revise(i.change_id, i.feedback).then(function () { return { shown: 'Sent; the coding agent is working', model: 'sent: the coding agent is adjusting change ' + i.change_id + '; the preview updates in a few minutes' }; });
           });
-        default:
-          return Promise.resolve(result(c, 'unknown tool ' + c.name, true));
+        default:   // the server knows a newer tool than this page: the hub was published since the page was opened
+          addShown('note', 'This hub page is older than the assistant: reload the page to use "' + c.name + '".');
+          return Promise.resolve(result(c, 'this hub page is out of date and does not have ' + c.name + '; ask the person to reload the hub page and try again', true));
       }
     } catch (e) { return Promise.resolve(result(c, 'failed: ' + e.message, true)); }
   }
