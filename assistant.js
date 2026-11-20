@@ -437,6 +437,19 @@
             if (e.value != null) o.value = e.value.map(function (v) { var x = { network: v.network, url: v.url }; if (v.handle) x.handle = v.handle; return x; });
             return o;
           }) }, i.show);
+        case 'create_task':
+          if (!window.HubTasks) return Promise.resolve(result(c, 'tasks are not available in this hub', true));
+          if (!str(i.title, 120) || typeof i.detail !== 'string' || i.detail.length > 2000 || !str(i.owner, 60)) return Promise.resolve(result(c, 'title (up to 120 characters), detail (up to 2000) and owner are required', true));
+          return confirmCard(c, 'Add this task for ' + i.owner + ': ' + i.title, i.detail, 'It goes on Work › Tasks, where the whole team sees it.', 'Add task', function () {
+            return HubTasks.create({ title: i.title, detail: i.detail, owner: i.owner }).then(function (t) { return { shown: 'Added to Work › Tasks', model: 'added task:' + t.id + ' "' + t.title + '" (Open, with ' + t.owner + ') on Work › Tasks (#/work/tasks)' }; });
+          });
+        case 'update_task':
+          if (!window.HubTasks) return Promise.resolve(result(c, 'tasks are not available in this hub', true));
+          var tid = String(i.task_id || '').replace(/^task:/, '');
+          if (!str(tid, 40) || HubTasks.statuses.indexOf(i.status) < 0 || typeof i.note !== 'string' || i.note.length > 500) return Promise.resolve(result(c, 'task_id, status (' + HubTasks.statuses.join(', ') + ') and note (up to 500 characters) are required', true));
+          return confirmCard(c, 'Set the task to ' + i.status, i.note, 'On Work › Tasks, with this note in its history.', 'Set ' + i.status, function () {
+            return HubTasks.update(tid, { status: i.status, note: i.note }).then(function (t) { return { shown: 'Task set to ' + t.status, model: 'task:' + t.id + ' "' + t.title + '" is now ' + t.status }; });
+          });
         case 'request_site_code_change':
           if (!window.HubSite) return Promise.resolve(result(c, 'website changes are not available in this hub', true));
           if (!str(i.title, 90) || !str(i.brief, 4000) || i.brief.length < 20) return Promise.resolve(result(c, 'title (up to 90 characters) and a brief (20 to 4000 characters) are required', true));
