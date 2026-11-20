@@ -437,6 +437,16 @@
             if (e.value != null) o.value = e.value.map(function (v) { var x = { network: v.network, url: v.url }; if (v.handle) x.handle = v.handle; return x; });
             return o;
           }) }, i.show);
+        case 'read_change_log':
+          if (!window.HubSite) return Promise.resolve(result(c, 'website changes are not available in this hub', true));
+          addShown('step', 'Reading the record of past website changes');
+          return HubSite.list().then(function (all) {
+            var done = all.filter(function (x) { return x.record; });
+            return result(c, done.length ? done.map(function (x) {
+              var d = x.libraryDraft;
+              return 'THIS SITE\'S RECORD\n' + x.record + (d && !d.notAMove ? '\n\nTHE GENERAL LESSON (library draft' + (d.undone ? '; the change was undone, so treat it with caution' : '') + ')\n' + d.markdown : '');
+            }).join('\n\n======\n\n') : 'no finished website changes yet');
+          }, function (e) { return result(c, 'could not read the change log: ' + e.message, true); });
         case 'read_work':
           addShown('step', 'Reading Work › Tasks');
           return readWork().then(function (t) { return result(c, t); }, function (e) { return result(c, 'could not read the work list: ' + e.message, true); });

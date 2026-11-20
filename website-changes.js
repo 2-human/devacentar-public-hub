@@ -14,7 +14,7 @@
   var SITE = HC.site || (LOCAL ? 'http://localhost:8786/' : 'https://centardeva.com/');
   // The frame is sandboxed with no origin of its own. Chrome stops such a frame from loading anything from localhost
   // (private network access), so on a local preview only it gets the hub's origin; the published hub keeps the strict one.
-  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=0109e25653'; document.head.appendChild(css);
+  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=a2a5343728'; document.head.appendChild(css);
 
   /* the requests are listed on Work › Tasks (views.js calls taskTable); #/website/changes stays for old links */
 
@@ -85,6 +85,11 @@
     return api('/changes/' + id + '/revise', { method: 'POST', body: JSON.stringify({ feedback: feedback }) }).then(function (doc) { return list().then(function () { redraw(); return doc; }); });
   }
   function act(id, what) {
+    if (what === 'copydraft') {
+      var c = find(id), t = c && c.libraryDraft ? c.libraryDraft.markdown : '';
+      return (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { if (H.say) H.say('Copied'); }, function () { window.prompt('Copy the entry:', t); });
+    }
+    if (what === 'redraft') { if (!window.confirm('Draft the library entry again? It costs about two cents.')) return; requestDraft(id); return redraw(); }
     if (what === 'revise') {
       var f = window.prompt('What should the coding agent change in this version?'); if (!f || !f.trim()) return;
       return revise(id, f.trim()).then(function () {}, function (e) { window.alert(e.message); });
@@ -136,6 +141,31 @@
     if (c.lane === 'code' && ['proposed', 'failed'].indexOf(c.status) >= 0) a.push('<button type="button" data-chg="revise" data-id="' + esc(c.id) + '">Ask for changes</button>');
     return a.length ? '<div class="sitepv-actions" data-pick-pass>' + a.join('') + '</div>' : '';
   }
+  var FINISHED = ['published', 'reverted', 'discarded'];
+  // a finished change: no preview (its preview address is gone once it is live); the written record instead
+  function recordBlock(c) {
+    return '<h2>The record</h2>' + (c.record ? '<pre class="sitepv-record">' + esc(c.record) + '</pre>' : '<p class="sitepv-note">' + (c.status === 'discarded' ? 'Discarded: nothing was published.' : 'The record is being written; it appears on the next refresh.') + '</p>') + libraryBlock(c);
+  }
+  // the same change without this site's context, as a draft entry for the 2-human library (library-draft.mjs on the server):
+  // drafted the first time the page is opened, then kept; Copy and Redraft
+  var drafting = {};
+  function requestDraft(id) {
+    drafting[id] = 'busy';
+    return api('/changes/' + id + '/draft', { method: 'POST', body: '{}' }).then(function () { delete drafting[id]; return list(); }).then(redraw, function (e) { drafting[id] = 'error: ' + e.message; redraw(); });
+  }
+  function libraryBlock(c) {
+    if (c.status === 'discarded') return '';
+    var d = c.libraryDraft, head = '<h2>For the library</h2><p class="sitepv-note">The same change without this site\'s context, so an agent on any other project can recognise a similar situation. It is a draft: review it, then ask Claude in the project to add it to the library (it starts as "proposed").</p>';
+    if (!d) {
+      if (!drafting[c.id] && c.record) requestDraft(c.id);
+      return head + '<p class="sitepv-note">' + (/^error/.test(drafting[c.id] || '') ? 'Not drafted (' + esc(drafting[c.id].slice(7)) + ').' : 'Drafting the entry…') + '</p>';
+    }
+    if (d.notAMove) return head + '<p>Nothing general to keep: ' + esc(d.markdown.replace(/^NOT A MOVE:\s*/i, '')) + '</p>';
+    return head + (d.undone ? '<p class="sitepv-error">This change was undone on the site: reconsider the lesson before using it.</p>' : '') +
+      '<pre class="sitepv-record" data-library-draft="' + esc(c.id) + '">' + esc(d.markdown) + '</pre>' +
+      '<div class="sitepv-actions" data-pick-pass><button type="button" data-chg="copydraft" data-id="' + esc(c.id) + '">Copy</button><button type="button" data-chg="redraft" data-id="' + esc(c.id) + '"' + (drafting[c.id] === 'busy' ? ' disabled' : '') + '>' + (drafting[c.id] === 'busy' ? 'Redrafting…' : 'Redraft') + '</button></div>' +
+      '<p class="sitepv-note">Drafted ' + esc(d.at ? new Date(d.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '') + ' by ' + esc(d.model || '') + (d.costUSD ? ' ($' + esc(d.costUSD.toFixed(3)) + ')' : '') + '.</p>';
+  }
   function codePage(c) {
     var p = c.preview, building = c.status === 'building', mins = c.run ? Math.max(0, Math.round((Date.now() - Date.parse(c.run.at)) / 60000)) : 0;
     return '<h1>' + esc(c.change.title) + '</h1>' +
@@ -144,17 +174,18 @@
       (c.error ? '<p class="sitepv-error">' + esc(c.error) + '</p>' : '') +
       '<details class="sitepv-brief"><summary>What was asked</summary><p>' + esc(c.change.brief) + '</p>' + (c.change.feedback || []).map(function (f) { return '<p><strong>Feedback</strong> (' + esc(f.by) + '): ' + esc(f.text) + '</p>'; }).join('') + '</details>' +
       (building ? '<p class="sitepv-note">The coding agent is making this on a copy of the site (started ' + (mins ? mins + ' min ago' : 'just now') + '; usually 3 to 8 minutes). You can keep working; this page updates by itself.</p>' : '') +
-      (p && p.summary ? '<p><strong>What the agent did:</strong> ' + esc(p.summary) + '</p>' : '') +
+      (FINISHED.indexOf(c.status) >= 0 ? actions(c) + recordBlock(c) : (p && p.summary ? '<p><strong>What the agent did:</strong> ' + esc(p.summary) + '</p>' : '') +
       (p ? '<p class="sitepv-note">Preview address (expires in 7 days): <a href="' + esc(p.preview) + '" target="_blank" rel="noopener">' + esc(p.preview.replace(/^https:\/\//, '')) + '</a>' + (you.role === 'admin' ? ' · <a href="' + esc(p.compareUrl) + '" target="_blank" rel="noopener">the code changes</a>' : '') + '</p>' : '') +
       actions(c) +
       (p ? '<div class="sitepv-bar" data-pick-pass>' + seg('Version', [['mode', 'before', 'Now'], ['mode', 'after', 'After the change']]) + seg('Language', [['lang', 'sr', 'Serbian'], ['lang', 'en', 'English']]) + seg('Width', [['width', 'desktop', 'Desktop'], ['width', 'phone', 'Phone']]) + '</div>' +
-        '<div class="sitepv-stage" data-w="' + view.width + '"><iframe class="sitepv-frame" data-sitepv="' + esc(c.id) + '" title="' + esc('Preview: ' + c.change.title + ' (' + (view.mode === 'after' ? 'after the change' : 'now') + ', ' + (view.lang === 'sr' ? 'Serbian' : 'English') + ')') + '" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe></div>' : '');
+        '<div class="sitepv-stage" data-w="' + view.width + '"><iframe class="sitepv-frame" data-sitepv="' + esc(c.id) + '" title="' + esc('Preview: ' + c.change.title + ' (' + (view.mode === 'after' ? 'after the change' : 'now') + ', ' + (view.lang === 'sr' ? 'Serbian' : 'English') + ')') + '" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe></div>' : ''));
   }
 
   H.route('/website/preview', function (rest, query) {
     var id = (query && query.c) || '', c = find(id); ensure();
     if (!c) { return '<h1>Website change</h1><p class="empty">' + esc(saved ? 'There is no change ' + id + '.' : err || 'Loading…') + '</p>'; }
     if (c.lane === 'code') return codePage(c);
+    if (FINISHED.indexOf(c.status) >= 0) return '<h1>' + esc(c.change.title) + '</h1><p class="sitepv-status"><span class="sitepv-badge" data-st="' + esc(c.status) + '">' + esc(STATUS[c.status] || c.status) + '</span> Copy / links change' + (c.byEmail ? ' · asked by ' + esc(c.byEmail) : '') + (c.commitUrl ? ' · <a href="' + esc(c.commitUrl) + '" target="_blank" rel="noopener">the commit</a>' : '') + '</p>' + actions(c) + recordBlock(c);
     var rows = (window.DEVA_CHANGES && window.DEVA_I18N) ? window.DEVA_CHANGES.diff(window.DEVA_I18N, c.change) : null;
     if (!rows) site().then(redraw);
     return '<h1>' + esc(c.change.title) + '</h1>' +

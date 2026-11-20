@@ -26,5 +26,6 @@
 .sitepv-stage[data-w=phone] .sitepv-frame{width:390px;max-width:100%;margin:0 auto;border-radius:18px;box-shadow:0 0 0 1px var(--hub-line)}
 .task-history{margin:4px 0 0;padding-left:18px;font-size:13px;color:var(--hub-mute)}
 .sitepv-actions button[aria-pressed=true]{background:var(--hub-accent-soft,#F3E6E1);border-color:var(--hub-accent,#B05A47);opacity:1}
+.sitepv-record{white-space:pre-wrap;font:13px/1.55 var(--hub-font);background:var(--hub-soft,rgba(0,0,0,.04));border:1px solid var(--hub-line);border-radius:10px;padding:12px 14px;margin:6px 0 14px;max-width:80ch}
 .sitepv-kind{font-size:11px;color:var(--hub-mute);border:1px solid var(--hub-line);border-radius:999px;padding:1px 7px;margin-left:4px}
 .sitepv-brief{margin:8px 0 12px;font-size:13px}.sitepv-brief summary{cursor:pointer;color:var(--hub-mute)}.sitepv-brief p{margin:6px 0}
