@@ -16,9 +16,7 @@
   // (private network access), so on a local preview only it gets the hub's origin; the published hub keeps the strict one.
   var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=e29df7e5df'; document.head.appendChild(css);
 
-  /* the Changes page in the Website menu */
-  var D = window.HUB_DATA, W = D && D.nav && D.nav.filter(function (s) { return s.sec === 'Website'; })[0];
-  if (W && !W.items.some(function (i) { return i.route === '/website/changes'; })) W.items.push({ label: 'Changes', route: '/website/changes' });
+  /* the requests are listed on Work › Tasks (views.js calls taskTable); #/website/changes stays for old links */
 
   /* ─── the site's own code and live copy ─── */
   var loading = null;
@@ -64,7 +62,7 @@
     }, function (e) { err = e.message; throw e; })).then(function (x) { listing = null; return x; }, function (e) { listing = null; throw e; });
   }
   var ensure = function () { if (!saved && !err && !listing) list().then(redraw, redraw); };
-  function redraw() { var p = location.hash.slice(1); if (p.indexOf('/website/changes') === 0 || p.indexOf('/website/preview') === 0) H.render({ drawer: false }); }
+  function redraw() { var p = location.hash.slice(1); if (p.indexOf('/website/changes') === 0 || p.indexOf('/website/preview') === 0 || p.indexOf('/work/tasks') === 0) H.render({ drawer: false }); }
   function find(id) { return drafts[id] ? { id: id, draft: true, status: 'draft', change: drafts[id] } : (saved || []).filter(function (c) { return c.id === id; })[0]; }
   function validate(change) { return site().then(function (s) { return s.C.validate(s.dict, change); }); }
   function preview(change, id) { drafts[id] = change; keepDrafts(); location.hash = '#/website/preview?c=' + encodeURIComponent(id); }
@@ -195,7 +193,21 @@
     var again = document.querySelector('#app-main [data-pv="' + keep.replace(/(before|after|sr|en|desktop|phone|on|off)$/, '') + '"][data-pv-v="' + b.getAttribute('data-pv-v') + '"]'); if (again) again.focus();
   });
 
-  window.HubSite = { site: site, copy: copy, validate: validate, preview: preview, save: save, list: list, request: request, revise: revise };
+  /* Work › Tasks: the website change requests, each opening its page in the main column */
+  var WITH = { draft: 'You (in the chat)', building: 'Coding agent', proposed: 'Admin (to approve)', failed: 'Admin (to retry or discard)', publishing: '2human (publishing)', reverting: '2human (undoing)', published: '2human', reverted: '2human', discarded: '–' };
+  function taskTable() {
+    ensure();
+    var all = Object.keys(drafts).map(find).concat(saved || []).filter(function (c) { return c.status !== 'discarded'; });
+    var head = '<h2>Website changes from the hub assistant</h2>';
+    if (err) return head + '<p class="empty">' + esc(err) + '</p>';
+    if (!saved) return head + '<p class="empty">Loading…</p>';
+    if (!all.length) return head + '<p class="empty">None yet. Ask the hub assistant for a change to the website.</p>';
+    return head + '<table class="sitepv-list"><thead><tr><th scope="col">Task</th><th scope="col">Status</th><th scope="col">With</th><th scope="col">Asked</th></tr></thead><tbody>' + all.map(function (c) {
+      return '<tr><td><a href="#/website/preview?c=' + esc(encodeURIComponent(c.id)) + '">' + esc(c.change.title) + '</a>' + (c.lane === 'code' ? ' <span class="sitepv-kind">layout / code</span>' : ' <span class="sitepv-kind">copy / links</span>') + '</td><td><span class="sitepv-badge" data-st="' + esc(c.status) + '">' + esc(STATUS[c.status] || c.status) + '</span></td><td>' + esc(WITH[c.status] || '–') + '</td><td>' + esc(c.at ? new Date(c.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '') + (c.byEmail ? ' · ' + esc(c.byEmail) : '') + '</td></tr>';
+    }).join('') + '</tbody></table>';
+  }
+
+  window.HubSite = { site: site, copy: copy, validate: validate, preview: preview, save: save, list: list, request: request, revise: revise, taskTable: taskTable };
   // this file loads after the hub's first paint: a link straight to one of these pages was drawn by the /website route
   redraw();
 })();
