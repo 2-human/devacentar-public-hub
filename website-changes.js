@@ -46,9 +46,12 @@
   }
 
   /* ─── change requests: drafts from the chat (this tab) and saved ones (the server) ─── */
+  // a draft lives only while its card waits in the chat: Save stores it, Discard drops it, and a reload (which ends the
+  // card) forgets it; drafts kept by older versions of this file are cleared
   var drafts = {}, saved = null, you = { role: '' }, publishing = false, poll = null, err = '';
-  try { drafts = JSON.parse(sessionStorage.getItem('devacentar-hub:site-drafts') || '{}'); } catch (e) {}
-  var keepDrafts = function () { try { sessionStorage.setItem('devacentar-hub:site-drafts', JSON.stringify(drafts)); } catch (e) {} };
+  try { sessionStorage.removeItem('devacentar-hub:site-drafts'); } catch (e) {}
+  var keepDrafts = function () {};
+  function drop(id) { if (drafts[id]) { delete drafts[id]; redraw(); } }
   function api(path, init) {
     if (!window.HubAssistant || !window.HubAssistant.api) return Promise.reject(new Error('the assistant is not available here'));
     return window.HubAssistant.api(path, init).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.error || 'the server answered ' + r.status); return j; }); });
@@ -207,7 +210,7 @@
     }).join('') + '</tbody></table>';
   }
 
-  window.HubSite = { site: site, copy: copy, validate: validate, preview: preview, save: save, list: list, request: request, revise: revise, taskTable: taskTable };
+  window.HubSite = { site: site, copy: copy, validate: validate, preview: preview, save: save, drop: drop, list: list, request: request, revise: revise, taskTable: taskTable };
   // this file loads after the hub's first paint: a link straight to one of these pages was drawn by the /website route
   redraw();
 })();

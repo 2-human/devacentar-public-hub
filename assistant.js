@@ -516,11 +516,11 @@
         log.appendChild(card); log.scrollTop = log.scrollHeight; card.querySelector('.asst-yes').focus();
         function finish(ok) {
           card.remove();
-          if (!ok) { addShown('card', 'Website change: ' + change.title, { outcome: 'Discarded' }); return resolveCard(result(c, 'discarded by the user; nothing was saved')); }
+          if (!ok) { HubSite.drop(id); addShown('card', 'Website change: ' + change.title, { outcome: 'Discarded' }); return resolveCard(result(c, 'discarded by the user; nothing was saved')); }
           HubSite.save(change, id).then(function (doc) {
             addShown('card', 'Website change: ' + change.title, { outcome: 'Saved as a proposal; waiting for an admin to approve it' }); say('Saved as a proposal');
             resolveCard(result(c, 'saved as proposal ' + doc.id + '; it is NOT published: an admin approves it on Work › Tasks (#/work/tasks), which publishes it'));
-          }, function (e) { addShown('card', 'Website change: ' + change.title, { outcome: 'Not saved: ' + e.message }); resolveCard(result(c, 'saving failed: ' + e.message, true)); });
+          }, function (e) { HubSite.drop(id); addShown('card', 'Website change: ' + change.title, { outcome: 'Not saved: ' + e.message }); resolveCard(result(c, 'saving failed: ' + e.message, true)); });
         }
         card.querySelector('.asst-yes').addEventListener('click', function () { finish(true); });
         card.querySelector('.asst-no').addEventListener('click', function () { finish(false); });
