@@ -437,6 +437,20 @@
             if (e.value != null) o.value = e.value.map(function (v) { var x = { network: v.network, url: v.url }; if (v.handle) x.handle = v.handle; return x; });
             return o;
           }) }, i.show);
+        case 'request_site_code_change':
+          if (!window.HubSite) return Promise.resolve(result(c, 'website changes are not available in this hub', true));
+          if (!str(i.title, 90) || !str(i.brief, 4000) || i.brief.length < 20) return Promise.resolve(result(c, 'title (up to 90 characters) and a brief (20 to 4000 characters) are required', true));
+          return confirmCard(c, 'Ask the coding agent: ' + i.title, i.brief, 'It works on a copy of the site (usually 3 to 8 minutes) on a paid model; the preview appears on Website › Changes. Nothing is published until an admin approves it.', 'Start', function () {
+            return HubSite.request({ title: i.title, brief: i.brief }).then(function (doc) {
+              return { shown: 'Started; the coding agent is working', model: 'started change ' + doc.id + ': the coding agent is working on a copy of the site; the preview appears on its page (#/website/preview?c=' + doc.id + ') in a few minutes. It is NOT published.' };
+            });
+          });
+        case 'revise_site_code_change':
+          if (!window.HubSite) return Promise.resolve(result(c, 'website changes are not available in this hub', true));
+          if (!str(i.change_id, 40) || !str(i.feedback, 2000)) return Promise.resolve(result(c, 'change_id and feedback are required', true));
+          return confirmCard(c, 'Send this to the coding agent', i.feedback, 'It adjusts the same copy of the site (a few minutes, paid model); the preview updates when it is done.', 'Send', function () {
+            return HubSite.revise(i.change_id, i.feedback).then(function () { return { shown: 'Sent; the coding agent is working', model: 'sent: the coding agent is adjusting change ' + i.change_id + '; the preview updates in a few minutes' }; });
+          });
         default:
           return Promise.resolve(result(c, 'unknown tool ' + c.name, true));
       }
@@ -496,6 +510,25 @@
         busy && busy.signal.addEventListener('abort', function () { if (document.contains(card)) finish(false); });
       }); });
     }, function (e) { return result(c, 'the live website copy could not be loaded: ' + e.message, true); });
+  }
+
+  /* a card for an action that costs or starts something: the person says yes or no; go() -> { shown, model } */
+  function confirmCard(c, question, quote, note, yes, go) {
+    return new Promise(function (resolveCard) {
+      var card = el('div', { class: 'asst-msg asst-card', role: 'group', 'aria-label': 'Confirm' });
+      card.innerHTML = '<p class="asst-card-q">' + esc(question) + '</p>' + (quote ? '<blockquote>' + esc(quote) + '</blockquote>' : '') + '<p class="asst-meta">' + esc(note) + '</p>' +
+        '<div class="asst-card-actions"><button type="button" class="asst-btn asst-yes">' + esc(yes) + '</button><button type="button" class="asst-btn asst-no">Cancel</button></div>';
+      log.appendChild(card); log.scrollTop = log.scrollHeight; card.querySelector('.asst-yes').focus();
+      function finish(ok) {
+        card.remove();
+        if (!ok) { addShown('card', question, { outcome: 'Cancelled' }); return resolveCard(result(c, 'declined by the user; nothing was started')); }
+        go().then(function (r) { addShown('card', question, { outcome: r.shown }); say(r.shown); resolveCard(result(c, r.model)); },
+          function (e) { addShown('card', question, { outcome: 'Not started: ' + e.message }); resolveCard(result(c, 'failed: ' + e.message, true)); });
+      }
+      card.querySelector('.asst-yes').addEventListener('click', function () { finish(true); });
+      card.querySelector('.asst-no').addEventListener('click', function () { finish(false); });
+      busy && busy.signal.addEventListener('abort', function () { if (document.contains(card)) finish(false); });
+    });
   }
 
   /* ─── notes list ─── */

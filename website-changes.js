@@ -14,7 +14,7 @@
   var SITE = HC.site || (LOCAL ? 'http://localhost:8786/' : 'https://centardeva.com/');
   // The frame is sandboxed with no origin of its own. Chrome stops such a frame from loading anything from localhost
   // (private network access), so on a local preview only it gets the hub's origin; the published hub keeps the strict one.
-  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=9e32b133e4'; document.head.appendChild(css);
+  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=e29df7e5df'; document.head.appendChild(css);
 
   /* the Changes page in the Website menu */
   var D = window.HUB_DATA, W = D && D.nav && D.nav.filter(function (s) { return s.sec === 'Website'; })[0];
@@ -76,15 +76,26 @@
       return doc;
     });
   }
+  // a layout / code change: the coding agent builds it on a branch; its preview appears on the change's page
+  function request(code) {
+    return api('/changes', { method: 'POST', body: JSON.stringify({ code: code }) }).then(function (doc) { saved = [doc].concat(saved || []); location.hash = '#/website/preview?c=' + doc.id; list().then(redraw, redraw); return doc; });
+  }
+  function revise(id, feedback) {
+    return api('/changes/' + id + '/revise', { method: 'POST', body: JSON.stringify({ feedback: feedback }) }).then(function (doc) { return list().then(function () { redraw(); return doc; }); });
+  }
   function act(id, what) {
+    if (what === 'revise') {
+      var f = window.prompt('What should the coding agent change in this version?'); if (!f || !f.trim()) return;
+      return revise(id, f.trim()).then(function () {}, function (e) { window.alert(e.message); });
+    }
     var q = { approve: 'Publish this change to centardeva.com now?', revert: 'Undo this change on centardeva.com?', discard: 'Discard this proposal?' }[what];
     if (!window.confirm(q)) return;
     api('/changes/' + id + '/' + what, { method: 'POST', body: '{}' }).then(function () { H.say ? H.say('Done') : 0; return list(); }).then(redraw, function (e) { window.alert(e.message); });
   }
 
   /* ─── the preview ─── */
-  var view = { lang: 'sr', mode: 'after', width: 'desktop' };
-  var STATUS = { draft: 'Not saved yet', proposed: 'Waiting for approval', publishing: 'Publishing…', published: 'Live', failed: 'Failed', reverting: 'Undoing…', reverted: 'Undone', discarded: 'Discarded' };
+  var view = { lang: 'sr', mode: 'after', width: 'desktop', marks: 'on' };
+  var STATUS = { draft: 'Not saved yet', building: 'The coding agent is working…', proposed: 'Waiting for approval', publishing: 'Publishing…', published: 'Live', failed: 'Failed', reverting: 'Undoing…', reverted: 'Undone', discarded: 'Discarded' };
   function highlight(o) {   // runs inside the preview frame
     var norm = function (s) { return String(s).replace(/\s+/g, ' ').trim(); }, hits = [];
     var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -96,18 +107,19 @@
   function srcdoc(s, change) {
     var after = view.mode === 'after', d = after ? s.C.apply(s.dict, change) : s.dict;
     var diff = s.C.diff(s.dict, change), lang = view.lang;
-    var marks = diff.filter(function (x) { return x.lang === lang; }).map(function (x) { return String(after ? x.after : x.before).replace(/\s+/g, ' ').trim(); });
+    var marks = view.marks === 'off' ? [] : diff.filter(function (x) { return x.lang === lang; }).map(function (x) { return String(after ? x.after : x.before).replace(/\s+/g, ' ').trim(); });
     var add = '<base href="' + SITE + (lang === 'sr' ? 'rs' : 'en') + '/" target="_blank">';
-    var hl = '<style>.deva-changed{outline:3px solid #E0A84A!important;outline-offset:6px;border-radius:2px}</style><script>(' + highlight.toString() + ')(' + JSON.stringify({ marks: marks, social: diff.some(function (x) { return !x.lang; }), after: after }).replace(/</g, '\\u003c') + ');<\/script>';
+    var hl = '<style>.deva-changed{outline:3px solid #E0A84A!important;outline-offset:6px;border-radius:2px}</style><script>(' + highlight.toString() + ')(' + JSON.stringify({ marks: marks, social: view.marks !== 'off' && diff.some(function (x) { return !x.lang; }), after: after }).replace(/</g, '\\u003c') + ');<\/script>';
     return s.doc.html(d, lang, 'home').replace('<head>', '<head>' + add).replace('</body>', hl + '</body>');
   }
   function fill() {
     var f = document.querySelector('#app-main [data-sitepv]'); if (!f || f.getAttribute('data-filled') === key()) return;
     var c = find(f.getAttribute('data-sitepv')); if (!c) return;
     f.setAttribute('data-filled', key());
+    if (c.lane === 'code') { var base = view.mode === 'after' && c.preview ? c.preview.preview.replace(/\/?$/, '/') : 'https://centardeva.com/'; f.src = base + (view.lang === 'sr' ? 'rs' : 'en') + '/'; return; }
     site().then(function (s) { f.srcdoc = srcdoc(s, c.change); }, function (e) { f.replaceWith(Object.assign(document.createElement('p'), { className: 'empty', textContent: e.message })); });
   }
-  var key = function () { return view.lang + view.mode + view.width; };
+  var key = function () { return view.lang + view.mode + view.width + view.marks; };
   function seg(name, opts) {
     return '<div class="sitepv-seg" role="group" aria-label="' + esc(name) + '">' + opts.map(function (o) {
       return '<button type="button" data-pv="' + o[0] + '" data-pv-v="' + o[1] + '" aria-pressed="' + (view[o[0]] === o[1]) + '">' + esc(o[2]) + '</button>';
@@ -116,14 +128,31 @@
   function actions(c) {
     if (c.draft) return '<p class="sitepv-note">Save or discard it in the chat.</p>';
     var a = [], admin = you.role === 'admin';
-    if (admin && ['proposed', 'failed'].indexOf(c.status) >= 0) a.push('<button type="button" class="sitepv-go" data-chg="approve" data-id="' + esc(c.id) + '"' + (publishing ? '' : ' disabled title="Publishing is not set up yet"') + '>Approve and publish</button>');
-    if (['proposed', 'failed'].indexOf(c.status) >= 0 && (admin || c.by === you.uid)) a.push('<button type="button" data-chg="discard" data-id="' + esc(c.id) + '">Discard</button>');
+    if (admin && ['proposed', 'failed'].indexOf(c.status) >= 0 && (c.lane !== 'code' || c.preview)) a.push('<button type="button" class="sitepv-go" data-chg="approve" data-id="' + esc(c.id) + '"' + (publishing ? '' : ' disabled title="Publishing is not set up yet"') + '>Approve and publish</button>');
+    if (['proposed', 'failed'].concat(c.lane === 'code' ? ['building'] : []).indexOf(c.status) >= 0 && (admin || c.by === you.uid)) a.push('<button type="button" data-chg="discard" data-id="' + esc(c.id) + '">Discard</button>');
     if (admin && c.status === 'published') a.push('<button type="button" data-chg="revert" data-id="' + esc(c.id) + '">Undo on the site</button>');
+    if (c.lane === 'code' && ['proposed', 'failed'].indexOf(c.status) >= 0) a.push('<button type="button" data-chg="revise" data-id="' + esc(c.id) + '">Ask for changes</button>');
     return a.length ? '<div class="sitepv-actions" data-pick-pass>' + a.join('') + '</div>' : '';
   }
+  function codePage(c) {
+    var p = c.preview, building = c.status === 'building', mins = c.run ? Math.max(0, Math.round((Date.now() - Date.parse(c.run.at)) / 60000)) : 0;
+    return '<h1>' + esc(c.change.title) + '</h1>' +
+      '<p class="sitepv-status"><span class="sitepv-badge" data-st="' + esc(c.status) + '">' + esc(STATUS[c.status] || c.status) + '</span> Layout / code change' + (c.byEmail ? ' · asked by ' + esc(c.byEmail) : '') +
+      (c.cost ? ' · agent cost $' + esc(c.cost.toFixed(2)) : '') + (c.runUrl ? ' · <a href="' + esc(c.runUrl) + '" target="_blank" rel="noopener">the run</a>' : '') + (c.commitUrl ? ' · <a href="' + esc(c.commitUrl) + '" target="_blank" rel="noopener">the commit</a>' : '') + '</p>' +
+      (c.error ? '<p class="sitepv-error">' + esc(c.error) + '</p>' : '') +
+      '<details class="sitepv-brief"><summary>What was asked</summary><p>' + esc(c.change.brief) + '</p>' + (c.change.feedback || []).map(function (f) { return '<p><strong>Feedback</strong> (' + esc(f.by) + '): ' + esc(f.text) + '</p>'; }).join('') + '</details>' +
+      (building ? '<p class="sitepv-note">The coding agent is making this on a copy of the site (started ' + (mins ? mins + ' min ago' : 'just now') + '; usually 3 to 8 minutes). You can keep working; this page updates by itself.</p>' : '') +
+      (p && p.summary ? '<p><strong>What the agent did:</strong> ' + esc(p.summary) + '</p>' : '') +
+      (p ? '<p class="sitepv-note">Preview address (expires in 7 days): <a href="' + esc(p.preview) + '" target="_blank" rel="noopener">' + esc(p.preview.replace(/^https:\/\//, '')) + '</a>' + (you.role === 'admin' ? ' · <a href="' + esc(p.compareUrl) + '" target="_blank" rel="noopener">the code changes</a>' : '') + '</p>' : '') +
+      actions(c) +
+      (p ? '<div class="sitepv-bar" data-pick-pass>' + seg('Version', [['mode', 'before', 'Now'], ['mode', 'after', 'After the change']]) + seg('Language', [['lang', 'sr', 'Serbian'], ['lang', 'en', 'English']]) + seg('Width', [['width', 'desktop', 'Desktop'], ['width', 'phone', 'Phone']]) + '</div>' +
+        '<div class="sitepv-stage" data-w="' + view.width + '"><iframe class="sitepv-frame" data-sitepv="' + esc(c.id) + '" title="' + esc('Preview: ' + c.change.title + ' (' + (view.mode === 'after' ? 'after the change' : 'now') + ', ' + (view.lang === 'sr' ? 'Serbian' : 'English') + ')') + '" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe></div>' : '');
+  }
+
   H.route('/website/preview', function (rest, query) {
     var id = (query && query.c) || '', c = find(id); ensure();
     if (!c) { return '<h1>Website change</h1><p class="empty">' + esc(saved ? 'There is no change ' + id + '.' : err || 'Loading…') + '</p>'; }
+    if (c.lane === 'code') return codePage(c);
     var rows = (window.DEVA_CHANGES && window.DEVA_I18N) ? window.DEVA_CHANGES.diff(window.DEVA_I18N, c.change) : null;
     if (!rows) site().then(redraw);
     return '<h1>' + esc(c.change.title) + '</h1>' +
@@ -135,7 +164,8 @@
         return '<tr><td><code>' + esc(r.path) + '</code></td><td>' + esc(r.lang ? (r.lang === 'sr' ? 'Serbian' : 'English') : 'both') + '</td><td>' + esc(r.before == null ? '–' : r.before) + '</td><td>' + esc(r.after) + '</td></tr>';
       }).join('') + '</tbody></table>' : '') +
       actions(c) +
-      '<div class="sitepv-bar" data-pick-pass>' + seg('Version', [['mode', 'before', 'Now'], ['mode', 'after', 'After the change']]) + seg('Language', [['lang', 'sr', 'Serbian'], ['lang', 'en', 'English']]) + seg('Width', [['width', 'desktop', 'Desktop'], ['width', 'phone', 'Phone']]) + '</div>' +
+      '<div class="sitepv-bar" data-pick-pass>' + seg('Version', [['mode', 'before', 'Now'], ['mode', 'after', 'After the change']]) + seg('Language', [['lang', 'sr', 'Serbian'], ['lang', 'en', 'English']]) + seg('Width', [['width', 'desktop', 'Desktop'], ['width', 'phone', 'Phone']]) + seg('Outline', [['marks', 'on', 'Outline changes'], ['marks', 'off', 'Hide outline']]) + '</div>' +
+      '<p class="sitepv-note sitepv-outline-note">' + (view.marks === 'off' ? 'Outline hidden: this is exactly how the page will look.' : 'Outlined in yellow: what changes. The outline is only in this preview, never on the site.') + '</p>' +
       '<div class="sitepv-stage" data-w="' + view.width + '"><iframe class="sitepv-frame" data-sitepv="' + esc(c.id) + '" title="' + esc('Preview: ' + c.change.title + ' (' + (view.mode === 'after' ? 'after the change' : 'now') + ', ' + (view.lang === 'sr' ? 'Serbian' : 'English') + ')') + '" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox' + (LOCAL ? ' allow-same-origin' : '') + '"></iframe></div>';
   });
 
@@ -149,7 +179,7 @@
     if (!all.length) return head + '<p class="empty">Nothing yet. Ask the assistant for a change to the website.</p>';
     return head + (publishing ? '' : '<p class="sitepv-note">Publishing is not set up yet (the server has no GitHub token); proposals can be made and previewed.</p>') +
       '<table class="sitepv-list"><thead><tr><th scope="col">Change</th><th scope="col">Status</th><th scope="col">Proposed by</th><th scope="col">When</th></tr></thead><tbody>' + all.map(function (c) {
-        return '<tr><td><a href="#/website/preview?c=' + esc(encodeURIComponent(c.id)) + '">' + esc(c.change.title) + '</a></td><td><span class="sitepv-badge" data-st="' + esc(c.status) + '">' + esc(STATUS[c.status] || c.status) + '</span></td><td>' + esc(c.byEmail || (c.draft ? 'you (in the chat)' : '–')) + '</td><td>' + esc(c.at ? new Date(c.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '') + '</td></tr>';
+        return '<tr><td><a href="#/website/preview?c=' + esc(encodeURIComponent(c.id)) + '">' + esc(c.change.title) + '</a>' + (c.lane === 'code' ? ' <span class="sitepv-kind">layout / code</span>' : '') + '</td><td><span class="sitepv-badge" data-st="' + esc(c.status) + '">' + esc(STATUS[c.status] || c.status) + '</span></td><td>' + esc(c.byEmail || (c.draft ? 'you (in the chat)' : '–')) + '</td><td>' + esc(c.at ? new Date(c.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '') + '</td></tr>';
       }).join('') + '</tbody></table>';
   });
 
@@ -161,10 +191,10 @@
     view[b.getAttribute('data-pv')] = b.getAttribute('data-pv-v');
     var keep = b.getAttribute('data-pv') + b.getAttribute('data-pv-v');
     H.render({ drawer: false });
-    var again = document.querySelector('#app-main [data-pv="' + keep.replace(/(before|after|sr|en|desktop|phone)$/, '') + '"][data-pv-v="' + b.getAttribute('data-pv-v') + '"]'); if (again) again.focus();
+    var again = document.querySelector('#app-main [data-pv="' + keep.replace(/(before|after|sr|en|desktop|phone|on|off)$/, '') + '"][data-pv-v="' + b.getAttribute('data-pv-v') + '"]'); if (again) again.focus();
   });
 
-  window.HubSite = { site: site, copy: copy, validate: validate, preview: preview, save: save, list: list };
+  window.HubSite = { site: site, copy: copy, validate: validate, preview: preview, save: save, list: list, request: request, revise: revise };
   // this file loads after the hub's first paint: a link straight to one of these pages was drawn by the /website route
   redraw();
 })();
