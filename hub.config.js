@@ -9,8 +9,10 @@ window.HUB_CONFIG = {
   modules: ['tables', 'page-frame'],
   data: ['data/core.js', 'data/website.js'],
   views: ['views.js', 'trail.js'],
-  // local prototype: the assistant (assistant.js does nothing on a non-local page; see tasks/todo.md)
-  after: ['assistant.js?v=cbda227bae'],
+  // the assistant (tools/assistant): on the published hub it talks to Cloud Run and only answers signed-in members;
+  // on a local preview it uses the server on this Mac (127.0.0.1:8790)
+  after: ['assistant.js?v=34edd09a38'],
+  assistant: { endpoint: 'https://hub-assistant-165052418454.europe-west1.run.app/chat' },
   gate: { scripts: ['firebase-config.js?v=6a430abc89', 'chassis/gate-store.js'], keyDoc: 'hubs/devacentar/meta/gate', roles: ['admin', 'team'] },
   labels: { filter: 'Filter the menu', staleItem: 'That item is no longer in this hub.', gateTitle: 'Centar DEVA hub' }
 };

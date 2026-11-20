@@ -7,11 +7,22 @@
  * (go_to, open_item, close_item, list_items, focus); writes (add_note, set_status) appear as cards the person
  * confirms before anything is saved. The conversation and the saved notes stay in this browser for the prototype.
  *
- * The model runs behind tools/assistant/server.mjs (127.0.0.1:8790), which holds the API key. This file does nothing
- * on a published (non-local) page unless window.HUB_ASSISTANT.enabled is set. */
+ * The model runs behind tools/assistant/server.mjs, which holds the API keys: on this Mac at 127.0.0.1:8790 for a local
+ * preview, on Cloud Run for the published hub (hub.config.js `assistant.endpoint`). The published server answers only
+ * signed-in hub members: every request carries the account's Firebase ID token (HubAuth, chassis gate-store.js). */
 (function () {
-  var CFG = Object.assign({ endpoint: 'http://127.0.0.1:8790/chat', enabled: /^(localhost|127\.0\.0\.1)$/.test(location.hostname) }, window.HUB_ASSISTANT || {});
-  if (!CFG.enabled || !window.Hub || document.getElementById('asst-panel')) return;
+  var LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname), HC = (window.HUB_CONFIG || {}).assistant || {};
+  var CFG = Object.assign({ endpoint: LOCAL ? 'http://127.0.0.1:8790/chat' : HC.endpoint, enabled: LOCAL || !!HC.endpoint }, window.HUB_ASSISTANT || {});
+  if (!CFG.enabled || !CFG.endpoint || !window.Hub || document.getElementById('asst-panel')) return;
+  if (window.HubAuth && window.HubAuth.user && !window.HubAuth.canRead()) return;   // signed in without a hub role
+  /* headers for the server: the sign-in token when the hub has one (the published hub); none on a local preview */
+  function authed(extra) {
+    var h = Object.assign({ 'Content-Type': 'application/json' }, extra || {});
+    if (!window.HubAuth || !window.HubAuth.firebase) return Promise.resolve(h);
+    return window.HubAuth.firebase().then(function (fb) { return fb.auth.currentUser ? fb.auth.currentUser.getIdToken() : null; })
+      .then(function (t) { if (t) h.Authorization = 'Bearer ' + t; return h; }, function () { return h; });
+  }
+  var UNREACHABLE = LOCAL ? 'The assistant server is not running (tools/assistant: npm start).' : 'The assistant could not be reached; try again in a moment.';
 
   var PREFIX = ((Hub.config.storage || {}).prefix || 'hub') + ':assistant:';
   var MAX_ROUNDS = 8, TEXT_CAP = 1500, DRAWER_CAP = 4000;
@@ -227,7 +238,7 @@
   function feedback(m, sig, node) {
     m.meta.fb = sig === 'none' ? null : sig; save();
     node.querySelectorAll('[data-fb]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-fb') === m.meta.fb)); });
-    fetch(base + '/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: m.meta.turnId, signal: sig }) }).catch(function () {});
+    authed().then(function (h) { return fetch(base + '/feedback', { method: 'POST', headers: h, body: JSON.stringify({ id: m.meta.turnId, signal: sig }) }); }).catch(function () {});
     say(sig === 'up' ? 'Marked as a good answer' : sig === 'down' ? 'Marked as a bad answer' : 'Feedback removed');
   }
   function redrawLog() {
@@ -293,9 +304,10 @@
 
   /* POST the history; read the server-sent events; resolve with the final message */
   function stream(signal, turnInfo, onText, onRoute) {
-    return fetch(CFG.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: messages, turn: turnInfo }), signal: signal })
-      .catch(function (e) { if (e.name === 'AbortError') throw e; throw new Error('The assistant server is not running (tools/assistant: npm start).'); })
+    return authed().then(function (h) { return fetch(CFG.endpoint, { method: 'POST', headers: h, body: JSON.stringify({ messages: messages, turn: turnInfo }), signal: signal }); })
+      .catch(function (e) { if (e.name === 'AbortError') throw e; throw new Error(UNREACHABLE); })
       .then(function (res) {
+        if (res.status === 401) throw new Error('Your sign-in has expired: reload the hub (and sign in again if it asks).');
         if (!res.ok || !res.body) throw new Error('The assistant server answered ' + res.status + '.');
         var reader = res.body.getReader(), dec = new TextDecoder(), buf = '', fin = null, fail = null;
         function pump() {
@@ -317,7 +329,7 @@
 
   /* ─── models: pin one for testing, or see what the router has learned ─── */
   function loadModels() {
-    return fetch(base + '/models').then(function (r) { return r.json(); }).then(function (rep) {
+    return authed().then(function (h) { return fetch(base + '/models', { headers: h }); }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).then(function (rep) {
       var sel = q('.asst-model-pick'), keep = sel.value;
       sel.innerHTML = '<option value="">Auto (router)</option>' + rep.models.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc(m.label + (m.free ? ' · free' : '')) + '</option>'; }).join('');
       sel.value = keep; return rep;
@@ -329,9 +341,10 @@
     if (!on) { log.hidden = false; return; }
     box.querySelector('.asst-models-body').innerHTML = '<p class="asst-meta">Loading…</p>';
     loadModels().then(function (rep) {
-      if (!rep) { box.querySelector('.asst-models-body').innerHTML = '<p class="asst-meta">The assistant server is not running.</p>'; return; }
+      if (!rep) { box.querySelector('.asst-models-body').innerHTML = '<p class="asst-meta">' + esc(UNREACHABLE) + '</p>'; return; }
       var label = {}; rep.models.forEach(function (m) { label[m.id] = m.label + (m.free ? ' (free)' : ''); });
       var html = '<p class="asst-meta">Available, cheapest first: ' + rep.models.map(function (m) { return esc(label[m.id]); }).join(' → ') + '</p>';
+      if (rep.dailyCap) html += '<p class="asst-meta">Paid models today: ' + esc(money(rep.spentToday) === 'free' ? '$0' : money(rep.spentToday)) + ' of the $' + esc(rep.dailyCap) + ' daily budget; past it, free models only.</p>';
       if (!rep.tasks.length) html += '<p class="asst-meta">Nothing learned yet: every answer and every 👍 / 👎 adds to this.</p>';
       rep.tasks.forEach(function (t) {
         var parts = t.key.split('|');
