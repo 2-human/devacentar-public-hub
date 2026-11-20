@@ -81,3 +81,6 @@ html.asst-picking #app-main,html.asst-picking #app-drawer{cursor:crosshair}
 .asst-title{order:0;flex:1 1 calc(100% - 50px)}
 .asst-close{order:1}
 .asst-head .asst-btn{order:2}
+
+/* suggested tasks (suggest_tasks) */
+.asst-sugg{padding:8px 0;border-top:1px solid var(--hub-line)}.asst-sugg:first-of-type{border-top:0}.asst-sugg p{margin:0 0 4px}.asst-sugg .asst-card-actions{margin-top:6px}

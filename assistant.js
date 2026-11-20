@@ -37,7 +37,7 @@
   };
 
   /* ─── styles and markup ─── */
-  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'assistant.css?v=da5445330c'; css.setAttribute('data-asst', ''); document.head.appendChild(css);
+  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'assistant.css?v=5302f3593c'; css.setAttribute('data-asst', ''); document.head.appendChild(css);
   var ICON = {
     chat: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg>',
     pick: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 4l7 16 2.5-6.5L20 11z"/></svg>',
@@ -450,6 +450,26 @@
         case 'read_work':
           addShown('step', 'Reading Work › Tasks');
           return readWork().then(function (t) { return result(c, t); }, function (e) { return result(c, 'could not read the work list: ' + e.message, true); });
+        case 'read_work_log':
+          if (!window.HubWork) return Promise.resolve(result(c, 'the work log is not available in this hub', true));
+          addShown('step', 'Reading the work log');
+          return HubWork.list().then(function (all) {
+            return result(c, all.length ? all.slice(0, 60).map(function (e) {
+              var l = e.lesson && !e.lesson.notAMove && e.lesson.review !== 'rejected' ? '\nLesson (' + (e.lesson.review || 'draft') + '): ' + e.lesson.markdown.replace(/^---[\s\S]*?---\s*/, '').split('\n## How to apply')[0].slice(0, 700) : '';
+              return '[' + e.id + '] ' + e.kind + ', ' + String(e.at).slice(0, 10) + ': ' + e.title + '\n' + e.record.slice(0, 1500) + l;
+            }).join('\n\n---\n\n') : 'the work log is empty');
+          }, function (e) { return result(c, 'could not read the work log: ' + e.message, true); });
+        case 'log_conversation':
+          if (!window.HubWork) return Promise.resolve(result(c, 'the work log is not available in this hub', true));
+          if (!str(i.title, 120) || typeof i.summary !== 'string' || i.summary.length < 20 || i.summary.length > 4000 || typeof i.between !== 'string') return Promise.resolve(result(c, 'title (up to 120 characters), summary (20 to 4000) and between are required', true));
+          return confirmCard(c, 'Add to the work log: ' + i.title, i.summary, 'A summary of a conversation ' + (i.between ? 'between ' + i.between + ' ' : '') + 'that you shared on purpose; people as roles, no contact details.', 'Add to the log', function () {
+            return HubWork.logPasted({ title: i.title, summary: i.summary, between: i.between }).then(function (e) { return { shown: 'Added to Work › Log', model: 'logged as ' + e.id + ' on Work › Log (#/work/log)' }; });
+          });
+        case 'suggest_tasks':
+          if (!window.HubWork || !window.HubTasks) return Promise.resolve(result(c, 'suggestions are not available in this hub', true));
+          if (typeof i.context !== 'string' || i.context.length < 20 || i.context.length > 8000) return Promise.resolve(result(c, 'context: 20 to 8000 characters', true));
+          addShown('step', 'Looking at the work log for the tasks that should follow');
+          return HubWork.suggest(i.context).then(function (batch) { return suggestCard(c, batch); }, function (e) { return result(c, 'could not suggest tasks: ' + e.message, true); });
         case 'create_task':
           if (!window.HubTasks) return Promise.resolve(result(c, 'tasks are not available in this hub', true));
           if (!str(i.title, 120) || typeof i.detail !== 'string' || i.detail.length > 2000 || !str(i.owner, 60)) return Promise.resolve(result(c, 'title (up to 120 characters), detail (up to 2000) and owner are required', true));
@@ -557,6 +577,47 @@
       });
       return 'Project tasks (set in the project; change them only with a note):\n' + (project.join('\n') || '- none') +
         '\n\nTasks added in the hub:\n' + (hub.join('\n') || '- none') + '\n\nWebsite change requests (newest first):\n' + (site.join('\n') || '- none');
+    });
+  }
+
+  /* suggested tasks: one card, each suggestion with its reason and Accept / Edit / Dismiss; the outcome of each is kept,
+   * so later suggestions learn from it. The tool answers once every suggestion is decided (or the card is closed). */
+  function suggestCard(c, batch) {
+    var items = batch.items || [];
+    if (!items.length) { addShown('note', 'No tasks to suggest for this.'); return Promise.resolve(result(c, 'no tasks suggested for this context')); }
+    return new Promise(function (resolveCard) {
+      var card = el('div', { class: 'asst-msg asst-card asst-suggest', role: 'group', 'aria-label': 'Suggested tasks' });
+      card.innerHTML = '<p class="asst-card-q">Suggested tasks</p>' + items.map(function (it) {
+        return '<div class="asst-sugg" data-n="' + it.n + '"><p><strong>' + esc(it.title) + '</strong> <span class="asst-meta">· ' + esc(it.owner) + '</span></p>' + (it.detail ? '<p>' + esc(it.detail) + '</p>' : '') +
+          (it.because ? '<p class="asst-meta">Why: ' + esc(it.because) + '</p>' : '') +
+          '<div class="asst-card-actions"><button type="button" class="asst-btn asst-yes" data-s="accepted">Accept</button><button type="button" class="asst-btn" data-s="edited">Edit</button><button type="button" class="asst-btn asst-no" data-s="dismissed">Dismiss</button></div><p class="asst-meta asst-sugg-out" hidden></p></div>';
+      }).join('') + '<div class="asst-card-actions"><button type="button" class="asst-btn asst-sugg-done">Done</button></div>';
+      log.appendChild(card); log.scrollTop = log.scrollHeight;
+      var outcomes = {};
+      function finish() {
+        var lines = items.map(function (it) { var o = outcomes[it.n]; return '- "' + it.title + '": ' + (o ? o.status + (o.taskId ? ' (task:' + o.taskId + ')' : '') : 'left open'); });
+        card.remove();
+        addShown('card', 'Suggested tasks', { outcome: items.map(function (it) { var o = outcomes[it.n]; return it.title + ': ' + (o ? o.status : 'left open'); }).join(' · ') });
+        resolveCard(result(c, 'the person decided:\n' + lines.join('\n')));
+      }
+      card.addEventListener('click', function (ev) {
+        var b = ev.target.closest('button'); if (!b) return;
+        if (b.classList.contains('asst-sugg-done')) return finish();
+        var box = b.closest('.asst-sugg'), n = Number(box.getAttribute('data-n')), it = items.filter(function (x) { return x.n === n; })[0], s = b.getAttribute('data-s');
+        var out = box.querySelector('.asst-sugg-out'), bs = box.querySelectorAll('button');
+        var lock = function (text) { [].forEach.call(bs, function (x) { x.disabled = true; }); out.hidden = false; out.textContent = text; };
+        var p;
+        if (s === 'dismissed') { var why = window.prompt('Why not? (optional; it helps later suggestions)', '') || ''; p = HubWork.outcome(batch.id, n, { status: 'dismissed', note: why }).then(function () { outcomes[n] = { status: 'dismissed' }; lock('Dismissed'); }); }
+        else {
+          var title = it.title, detail = it.detail;
+          if (s === 'edited') { title = window.prompt('The task:', it.title); if (!title) return; detail = window.prompt('Details:', it.detail || '') || ''; }
+          p = HubTasks.create({ title: title, detail: detail, owner: it.owner, origin: { batch: batch.id, n: n } }).then(function (t) {
+            return HubWork.outcome(batch.id, n, { status: s, taskId: t.id, note: s === 'edited' ? 'changed to: ' + title : '' }).then(function () { outcomes[n] = { status: s, taskId: t.id }; lock((s === 'edited' ? 'Edited and added' : 'Added') + ' to Work › Tasks'); });
+          });
+        }
+        p.then(function () { if (Object.keys(outcomes).length === items.length) finish(); }, function (e) { window.alert(e.message); });
+      });
+      busy && busy.signal.addEventListener('abort', function () { if (document.contains(card)) finish(); });
     });
   }
 
