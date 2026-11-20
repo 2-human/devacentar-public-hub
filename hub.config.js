@@ -5,7 +5,7 @@ window.HUB_CONFIG = {
   brand: { name: 'Centar DEVA', sub: 'Hub' },
   tokens: { accent: '#B05A47', accentSoft: '#F3E6E1' }, tokensDark: { accent: '#E09A86', accentSoft: '#3A2823' },
   storage: { prefix: 'devacentar-hub' },
-  skin: 'skin.css?v=b86c766a0a',
+  skin: 'skin.css?v=fadfd00cbe',
   modules: ['tables', 'page-frame'],
   data: ['data/core.js', 'data/website.js'],
   views: ['views.js'],
