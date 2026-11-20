@@ -437,6 +437,9 @@
             if (e.value != null) o.value = e.value.map(function (v) { var x = { network: v.network, url: v.url }; if (v.handle) x.handle = v.handle; return x; });
             return o;
           }) }, i.show);
+        case 'read_work':
+          addShown('step', 'Reading Work › Tasks');
+          return readWork().then(function (t) { return result(c, t); }, function (e) { return result(c, 'could not read the work list: ' + e.message, true); });
         case 'create_task':
           if (!window.HubTasks) return Promise.resolve(result(c, 'tasks are not available in this hub', true));
           if (!str(i.title, 120) || typeof i.detail !== 'string' || i.detail.length > 2000 || !str(i.owner, 60)) return Promise.resolve(result(c, 'title (up to 120 characters), detail (up to 2000) and owner are required', true));
@@ -453,7 +456,7 @@
         case 'request_site_code_change':
           if (!window.HubSite) return Promise.resolve(result(c, 'website changes are not available in this hub', true));
           if (!str(i.title, 90) || !str(i.brief, 4000) || i.brief.length < 20) return Promise.resolve(result(c, 'title (up to 90 characters) and a brief (20 to 4000 characters) are required', true));
-          return confirmCard(c, 'Ask the coding agent: ' + i.title, i.brief, 'It works on a copy of the site (usually 3 to 8 minutes) on a paid model; the preview appears on Website › Changes. Nothing is published until an admin approves it.', 'Start', function () {
+          return confirmCard(c, 'Ask the coding agent: ' + i.title, i.brief, 'It works on a copy of the site (usually 3 to 8 minutes) on a paid model; the preview appears on Work › Tasks. Nothing is published until an admin approves it.', 'Start', function () {
             return HubSite.request({ title: i.title, brief: i.brief }).then(function (doc) {
               return { shown: 'Started; the coding agent is working', model: 'started change ' + doc.id + ': the coding agent is working on a copy of the site; the preview appears on its page (#/website/preview?c=' + doc.id + ') in a few minutes. It is NOT published.' };
             });
@@ -516,7 +519,7 @@
           if (!ok) { addShown('card', 'Website change: ' + change.title, { outcome: 'Discarded' }); return resolveCard(result(c, 'discarded by the user; nothing was saved')); }
           HubSite.save(change, id).then(function (doc) {
             addShown('card', 'Website change: ' + change.title, { outcome: 'Saved as a proposal; waiting for an admin to approve it' }); say('Saved as a proposal');
-            resolveCard(result(c, 'saved as proposal ' + doc.id + '; it is NOT published: an admin approves it on Website › Changes (#/website/changes), which publishes it'));
+            resolveCard(result(c, 'saved as proposal ' + doc.id + '; it is NOT published: an admin approves it on Work › Tasks (#/work/tasks), which publishes it'));
           }, function (e) { addShown('card', 'Website change: ' + change.title, { outcome: 'Not saved: ' + e.message }); resolveCard(result(c, 'saving failed: ' + e.message, true)); });
         }
         card.querySelector('.asst-yes').addEventListener('click', function () { finish(true); });
@@ -524,6 +527,27 @@
         busy && busy.signal.addEventListener('abort', function () { if (document.contains(card)) finish(false); });
       }); });
     }, function (e) { return result(c, 'the live website copy could not be loaded: ' + e.message, true); });
+  }
+
+  /* Work › Tasks as text for the model: the project's tasks, the hub's tasks, the website change requests (fresh) */
+  function readWork() {
+    var STATE = { draft: 'not saved (still in the chat)', building: 'the coding agent is working on it', proposed: 'waiting for an admin to approve', publishing: 'approved, being published', published: 'LIVE on centardeva.com', failed: 'failed', reverting: 'being undone', reverted: 'undone (no longer on the site)', discarded: 'discarded' };
+    var day = function (iso) { return iso ? new Date(iso).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : ''; };
+    var project = ((window.HUB_DATA || {}).next || []).map(function (n) { return '- step:' + n.id + ' · ' + n.title + ' · ' + n.status + ' · with ' + n.owner; });
+    return Promise.all([
+      window.HubTasks ? HubTasks.list().catch(function (e) { return { error: e.message }; }) : Promise.resolve([]),
+      window.HubSite ? HubSite.list().catch(function (e) { return { error: e.message }; }) : Promise.resolve([])
+    ]).then(function (r) {
+      var tasks = r[0], changes = r[1];
+      var hub = tasks.error ? ['- (could not be read: ' + tasks.error + ')'] : tasks.map(function (t) { return '- task:' + t.id + ' · ' + t.title + ' · ' + t.status + ' · with ' + t.owner + ' · added ' + day(t.at) + (t.byEmail ? ' by ' + t.byEmail : ''); });
+      var site = changes.error ? ['- (could not be read: ' + changes.error + ')'] : changes.map(function (c) {
+        return '- change ' + c.id + ' · ' + c.change.title + ' · ' + (c.lane === 'code' ? 'layout / code' : 'copy / links') + ' · ' + (STATE[c.status] || c.status) +
+          ' · asked ' + day(c.at) + (c.byEmail ? ' by ' + c.byEmail : '') + (c.approvedBy ? ' · approved by ' + c.approvedBy : '') + (c.commit ? ' · commit ' + c.commit.slice(0, 7) : '') +
+          (c.status === 'published' || c.status === 'reverted' ? ' · ' + c.status + ' ' + day(c.updated) : '') + (c.error ? ' · error: ' + c.error : '');
+      });
+      return 'Project tasks (set in the project; change them only with a note):\n' + (project.join('\n') || '- none') +
+        '\n\nTasks added in the hub:\n' + (hub.join('\n') || '- none') + '\n\nWebsite change requests (newest first):\n' + (site.join('\n') || '- none');
+    });
   }
 
   /* a card for an action that costs or starts something: the person says yes or no; go() -> { shown, model } */
