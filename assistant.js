@@ -408,6 +408,18 @@
         case 'set_status':
           if (!str(i.target) || ['approved', 'changes_requested'].indexOf(i.state) < 0 || typeof i.note !== 'string' || i.note.length > 2000) return Promise.resolve(result(c, 'target, state (approved | changes_requested) and note required', true));
           return write(c, 'status', i.target, { state: i.state, text: i.note }, i.state === 'approved' ? 'Mark as approved: ' : 'Request changes on ');
+        case 'read_site_copy':
+          if (!window.HubSite) return Promise.resolve(result(c, 'website changes are not available in this hub', true));
+          if (!str(i.section, 40)) return Promise.resolve(result(c, 'section required', true));
+          addShown('step', 'Reading the website copy: ' + i.section);
+          return HubSite.copy(i.section).then(function (t) { return result(c, t.length > 12000 ? t.slice(0, 12000) + '\n…' : t); }, function (e) { return result(c, e.message, true); });
+        case 'propose_site_change':
+          if (!window.HubSite) return Promise.resolve(result(c, 'website changes are not available in this hub', true));
+          return proposeSite(c, { title: i.title, summary: i.summary, edits: (i.edits || []).map(function (e) {
+            var o = { path: e.path }; if (e.sr != null) o.sr = e.sr; if (e.en != null) o.en = e.en;
+            if (e.value != null) o.value = e.value.map(function (v) { var x = { network: v.network, url: v.url }; if (v.handle) x.handle = v.handle; return x; });
+            return o;
+          }) }, i.show);
         default:
           return Promise.resolve(result(c, 'unknown tool ' + c.name, true));
       }
@@ -441,6 +453,34 @@
     });
   }
 
+  /* a website change: checked against the live copy, shown on the real page in the main column, then saved or discarded */
+  function proposeSite(c, change, lang) {
+    return HubSite.validate(change).then(function (r) {
+      if (!r.ok) return result(c, 'not valid against the live site:\n- ' + r.errors.join('\n- '), true);
+      var id = 'd' + c.id.replace(/[^\w]/g, '').slice(-12);
+      addShown('step', 'Showing the website with the change');
+      HubSite.preview(change, id);
+      return settle().then(function () { return new Promise(function (resolveCard) {
+        var card = el('div', { class: 'asst-msg asst-card', role: 'group', 'aria-label': 'Confirm' });
+        card.innerHTML = '<p class="asst-card-q">' + esc('Website change: ' + change.title) + '</p>' + (change.summary ? '<blockquote>' + esc(change.summary) + '</blockquote>' : '') +
+          '<p class="asst-meta">The page in the main column shows it; nothing is published until an admin approves it.</p>' +
+          '<div class="asst-card-actions"><button type="button" class="asst-btn asst-yes">Save as proposal</button><button type="button" class="asst-btn asst-no">Discard</button></div>';
+        log.appendChild(card); log.scrollTop = log.scrollHeight; card.querySelector('.asst-yes').focus();
+        function finish(ok) {
+          card.remove();
+          if (!ok) { addShown('card', 'Website change: ' + change.title, { outcome: 'Discarded' }); return resolveCard(result(c, 'discarded by the user; nothing was saved')); }
+          HubSite.save(change, id).then(function (doc) {
+            addShown('card', 'Website change: ' + change.title, { outcome: 'Saved as a proposal; waiting for an admin to approve it' }); say('Saved as a proposal');
+            resolveCard(result(c, 'saved as proposal ' + doc.id + '; it is NOT published: an admin approves it on Website › Changes (#/website/changes), which publishes it'));
+          }, function (e) { addShown('card', 'Website change: ' + change.title, { outcome: 'Not saved: ' + e.message }); resolveCard(result(c, 'saving failed: ' + e.message, true)); });
+        }
+        card.querySelector('.asst-yes').addEventListener('click', function () { finish(true); });
+        card.querySelector('.asst-no').addEventListener('click', function () { finish(false); });
+        busy && busy.signal.addEventListener('abort', function () { if (document.contains(card)) finish(false); });
+      }); });
+    }, function (e) { return result(c, 'the live website copy could not be loaded: ' + e.message, true); });
+  }
+
   /* ─── notes list ─── */
   function countNotes() { q('.asst-count').textContent = String(Store.list().length); }
   function showNotes(on) {
@@ -463,5 +503,7 @@
     });
   }
 
-  window.HubAssistant = { open: openPanel, close: closePanel, focus: function (n) { setFocus(n); }, state: function () { return { open: open, pick: pick, focus: focusInfo, busy: !!busy }; } };
+  window.HubAssistant = { open: openPanel, close: closePanel, focus: function (n) { setFocus(n); }, state: function () { return { open: open, pick: pick, focus: focusInfo, busy: !!busy }; },
+    /* the server, as the signed-in member (website-changes.js uses it) */
+    api: function (path, init) { return authed().then(function (h) { return fetch(base + path, Object.assign({}, init || {}, { headers: h })); }); } };
 })();
