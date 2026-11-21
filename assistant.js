@@ -457,10 +457,18 @@
           if (!window.HubWork) return Promise.resolve(result(c, 'the work log is not available in this hub', true));
           addShown('step', 'Reading the work log');
           return HubWork.list().then(function (all) {
-            return result(c, all.length ? all.slice(0, 60).map(function (e) {
-              var l = e.lesson && !e.lesson.notAMove && e.lesson.review !== 'rejected' ? '\nLesson (' + (e.lesson.review || 'draft') + '): ' + e.lesson.markdown.replace(/^---[\s\S]*?---\s*/, '').split('\n## How to apply')[0].slice(0, 700) : '';
-              return '[' + e.id + '] ' + e.kind + ', ' + String(e.at).slice(0, 10) + ': ' + e.title + '\n' + e.record.slice(0, 1500) + l;
-            }).join('\n\n---\n\n') : 'the work log is empty');
+            // threads: each task with the conversations it came from (their decisions) and the actions that did it
+            var by = {}, acts = {}, used = {}, d = function (x) { return String(x || '').slice(0, 10); };
+            var kind = function (e) { return { 'site-change': 'action', session: 'conversation' }[e.kind] || e.kind; };
+            all.forEach(function (e) { by[e.id] = e; if (kind(e) === 'action' && e.task) (acts[e.task] = acts[e.task] || []).push(e); });
+            var conv = function (id) { var x = by[id]; if (!x) return ''; used[id] = 1; return '\n  from [' + id + '] ' + x.title + ' (' + d(x.at) + ')' + ((x.decisions || []).length ? ' — decided: ' + x.decisions.join('; ') : ''); };
+            var tasks = all.filter(function (e) { return kind(e) === 'task'; }).slice(0, 45).map(function (t) {
+              var a = acts[t.id] || [], l = t.lesson && !t.lesson.notAMove && t.lesson.review !== 'rejected' ? '\n  lesson (' + (t.lesson.review || 'draft') + '): ' + t.lesson.markdown.replace(/^---[\s\S]*?---\s*/, '').split('\n## How to apply')[0].replace(/\s+/g, ' ').slice(0, 400) : '';
+              return '[' + t.id + '] ' + t.title + ' — ' + (t.status || '?') + '; assigned by ' + (t.assignedBy ? t.assignedBy.who : '?') + ' to ' + (t.assignee ? t.assignee.who : '?') + ', ' + d(t.at) +
+                (t.conversations || []).map(conv).join('') + (a.length ? '\n  done: ' + a.slice(0, 6).map(function (x) { return x.title; }).join('; ') + (a.length > 6 ? ' (+' + (a.length - 6) + ' more)' : '') + ' — last ' + d(a.reduce(function (m, x) { return x.at > m ? x.at : m; }, '')) : '') + l;
+            });
+            var talks = all.filter(function (e) { return kind(e) === 'conversation' && !used[e.id] && (e.decisions || []).length; }).slice(0, 15).map(function (e) { return '[' + e.id + '] ' + e.title + ' (' + d(e.at) + ') — decided: ' + e.decisions.join('; '); });
+            return result(c, tasks.length || talks.length ? 'Tasks, newest first (each with where it came from and what was done):\n' + tasks.join('\n\n') + (talks.length ? '\n\nConversations with decisions but no task:\n' + talks.join('\n') : '') : 'the work log is empty');
           }, function (e) { return result(c, 'could not read the work log: ' + e.message, true); });
         case 'log_conversation':
           if (!window.HubWork) return Promise.resolve(result(c, 'the work log is not available in this hub', true));
@@ -477,7 +485,7 @@
           if (!window.HubTasks) return Promise.resolve(result(c, 'tasks are not available in this hub', true));
           if (!str(i.title, 120) || typeof i.detail !== 'string' || i.detail.length > 2000 || !str(i.owner, 60)) return Promise.resolve(result(c, 'title (up to 120 characters), detail (up to 2000) and owner are required', true));
           return confirmCard(c, 'Add this task for ' + i.owner + ': ' + i.title, i.detail, 'It goes on Work › Tasks, where the whole team sees it.', 'Add task', function () {
-            return HubTasks.create({ title: i.title, detail: i.detail, owner: i.owner }).then(function (t) { return { shown: 'Added to Work › Tasks', model: 'added task:' + t.id + ' "' + t.title + '" (Open, with ' + t.owner + ') on Work › Tasks (#/work/tasks)' }; });
+            return HubTasks.create({ title: i.title, detail: i.detail, owner: i.owner }, turnNow()).then(function (t) { return { shown: 'Added to Work › Tasks', model: 'added task:' + t.id + ' "' + t.title + '" (Open, with ' + t.owner + ') on Work › Tasks (#/work/tasks)' }; });
           });
         case 'update_task':
           if (!window.HubTasks) return Promise.resolve(result(c, 'tasks are not available in this hub', true));
@@ -490,7 +498,7 @@
           if (!window.HubSite) return Promise.resolve(result(c, 'website changes are not available in this hub', true));
           if (!str(i.title, 90) || !str(i.brief, 4000) || i.brief.length < 20) return Promise.resolve(result(c, 'title (up to 90 characters) and a brief (20 to 4000 characters) are required', true));
           return confirmCard(c, 'Ask the coding agent: ' + i.title, i.brief, 'It works on a copy of the site (usually 3 to 8 minutes) on a paid model; the preview appears on Work › Tasks. Nothing is published until an admin approves it.', 'Start', function () {
-            return HubSite.request({ title: i.title, brief: i.brief }).then(function (doc) {
+            return HubSite.request({ title: i.title, brief: i.brief }, turnNow()).then(function (doc) {
               return { shown: 'Started; the coding agent is working', model: 'started change ' + doc.id + ': the coding agent is working on a copy of the site; the preview appears on its page (#/website/preview?c=' + doc.id + ') in a few minutes. It is NOT published.' };
             });
           });
@@ -537,6 +545,7 @@
   /* a website change: checked against the live copy, shown on the real page in the main column, then saved or discarded */
   // what was discarded last (edits and social links), so the same proposal is not offered again unchanged
   var lastDiscarded = null, currentTurn = null;
+  var turnNow = function () { return currentTurn ? currentTurn.id : null; };   // the work log links what a turn creates to its conversation
   var sameAs = function (change) { return JSON.stringify({ edits: change.edits || null, social: change.social || null }); };
   var DISCARDED = 'discarded by the person: nothing was saved, the preview is closed and the main column is back where they were. ' +
     'A discard means they did not get what they wanted, or are still exploring and needed to see it to decide. Do not propose the same change again unchanged: ' +
@@ -561,7 +570,7 @@
             HubSite.drop(id); lastDiscarded = sameAs(change); if (currentTurn) currentTurn.discarded = true;
             addShown('card', 'Website change: ' + change.title, { outcome: 'Discarded' }); return resolveCard(result(c, DISCARDED));
           }
-          HubSite.save(change, id).then(function (doc) {
+          HubSite.save(change, id, turnNow()).then(function (doc) {
             addShown('card', 'Website change: ' + change.title, { outcome: 'Saved as a proposal; waiting for an admin to approve it' }); say('Saved as a proposal');
             resolveCard(result(c, 'saved as proposal ' + doc.id + '; it is NOT published: an admin approves it on Work › Tasks (#/work/tasks), which publishes it'));
           }, function (e) { HubSite.drop(id); addShown('card', 'Website change: ' + change.title, { outcome: 'Not saved: ' + e.message }); resolveCard(result(c, 'saving failed: ' + e.message, true)); });
@@ -625,7 +634,7 @@
         else {
           var title = it.title, detail = it.detail;
           if (s === 'edited') { title = window.prompt('The task:', it.title); if (!title) return; detail = window.prompt('Details:', it.detail || '') || ''; }
-          p = HubTasks.create({ title: title, detail: detail, owner: it.owner, origin: { batch: batch.id, n: n } }).then(function (t) {
+          p = HubTasks.create({ title: title, detail: detail, owner: it.owner, origin: { batch: batch.id, n: n } }, turnNow()).then(function (t) {
             return HubWork.outcome(batch.id, n, { status: s, taskId: t.id, note: s === 'edited' ? 'changed to: ' + title : '' }).then(function () { outcomes[n] = { status: s, taskId: t.id }; lock((s === 'edited' ? 'Edited and added' : 'Added') + ' to Work › Tasks'); });
           });
         }

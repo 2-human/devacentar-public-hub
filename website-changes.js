@@ -14,7 +14,7 @@
   var SITE = HC.site || (LOCAL ? 'http://localhost:8786/' : 'https://centardeva.com/');
   // The frame is sandboxed with no origin of its own. Chrome stops such a frame from loading anything from localhost
   // (private network access), so on a local preview only it gets the hub's origin; the published hub keeps the strict one.
-  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=a2a5343728'; document.head.appendChild(css);
+  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=041008cdc9'; document.head.appendChild(css);
 
   /* the requests are listed on Work › Tasks (views.js calls taskTable); #/website/changes stays for old links */
 
@@ -80,8 +80,8 @@
     if (location.hash.indexOf('#/website/preview') !== 0) returnTo = location.hash || null;   // where Discard goes back to
     location.hash = '#/website/preview?c=' + encodeURIComponent(id);
   }
-  function save(change, draftId) {
-    return api('/changes', { method: 'POST', body: JSON.stringify({ change: change }) }).then(function (doc) {
+  function save(change, draftId, turn) {   // turn: the chat turn it was asked in (the work log links the change's task to it)
+    return api('/changes', { method: 'POST', body: JSON.stringify({ change: change, turn: turn || null }) }).then(function (doc) {
       if (draftId) { delete drafts[draftId]; keepDrafts(); }
       saved = [doc].concat(saved || []); list().then(redraw, redraw);
       if (location.hash.indexOf('c=' + encodeURIComponent(draftId)) > 0) location.hash = '#/website/preview?c=' + doc.id; else redraw();
@@ -89,8 +89,8 @@
     });
   }
   // a layout / code change: the coding agent builds it on a branch; its preview appears on the change's page
-  function request(code) {
-    return api('/changes', { method: 'POST', body: JSON.stringify({ code: code }) }).then(function (doc) { saved = [doc].concat(saved || []); location.hash = '#/website/preview?c=' + doc.id; list().then(redraw, redraw); return doc; });
+  function request(code, turn) {
+    return api('/changes', { method: 'POST', body: JSON.stringify({ code: code, turn: turn || null }) }).then(function (doc) { saved = [doc].concat(saved || []); location.hash = '#/website/preview?c=' + doc.id; list().then(redraw, redraw); return doc; });
   }
   function revise(id, feedback) {
     return api('/changes/' + id + '/revise', { method: 'POST', body: JSON.stringify({ feedback: feedback }) }).then(function (doc) { return list().then(function () { redraw(); return doc; }); });

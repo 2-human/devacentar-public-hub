@@ -17,7 +17,7 @@
     return loading || (loading = api('/tasks').then(function (j) { all = j.tasks; err = ''; loading = null; redraw(); return all; }, function (e) { err = e.message; loading = null; redraw(); throw e; }));
   }
   function ensure() { if (!all && !err && !loading) list().catch(function () {}); }
-  function create(t) { return api('/tasks', { method: 'POST', body: JSON.stringify({ task: t }) }).then(function (doc) { all = [doc].concat(all || []); redraw(); return doc; }); }
+  function create(t, turn) { return api('/tasks', { method: 'POST', body: JSON.stringify({ task: t, turn: turn || null }) }).then(function (doc) { all = [doc].concat(all || []); redraw(); return doc; }); }
   function update(id, u) { return api('/tasks/' + encodeURIComponent(id), { method: 'POST', body: JSON.stringify(u) }).then(function (doc) { all = (all || []).map(function (x) { return x.id === doc.id ? doc : x; }); redraw(); return doc; }); }
   var find = function (id) { return (all || []).filter(function (t) { return t.id === id; })[0]; };
   var when = function (iso) { return iso ? new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : ''; };
