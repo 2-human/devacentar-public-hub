@@ -509,14 +509,43 @@
             var kind = function (e) { return { 'site-change': 'action', session: 'conversation' }[e.kind] || e.kind; };
             all.forEach(function (e) { by[e.id] = e; if (kind(e) === 'action' && e.task) (acts[e.task] = acts[e.task] || []).push(e); });
             var conv = function (id) { var x = by[id]; if (!x) return ''; used[id] = 1; return '\n  from [' + id + '] ' + x.title + ' (' + d(x.at) + ')' + ((x.decisions || []).length ? ' — decided: ' + x.decisions.join('; ') : ''); };
+            var sigs = {}; all.forEach(function (e) { if (e.kind === 'signal' && e.type !== 'withdrawn' && e.about) (sigs[e.about] = sigs[e.about] || []).push(e); });
+            var GOOD = ['approved', 'up', 'praise'], BAD = ['rejected', 'correction', 'problem', 'changes-requested', 'down', 'discarded', 'reverted'];
+            var said = function (ids) { var l = ids.reduce(function (o, id) { return o.concat(sigs[id] || []); }, []); if (!l.length) return ''; var g = l.filter(function (x) { return GOOD.indexOf(x.type) >= 0; }).length, b = l.filter(function (x) { return BAD.indexOf(x.type) >= 0; }); return '\n  feedback: +' + g + ' −' + b.length + (b.length ? ' (' + b.slice(0, 3).map(function (x) { return x.type + ': ' + String(x.note || '').slice(0, 90); }).join('; ') + ')' : ''); };
             var tasks = all.filter(function (e) { return kind(e) === 'task'; }).slice(0, 45).map(function (t) {
               var a = acts[t.id] || [], l = t.lesson && !t.lesson.notAMove && t.lesson.review !== 'rejected' ? '\n  lesson (' + (t.lesson.review || 'draft') + '): ' + t.lesson.markdown.replace(/^---[\s\S]*?---\s*/, '').split('\n## How to apply')[0].replace(/\s+/g, ' ').slice(0, 400) : '';
               return '[' + t.id + '] ' + t.title + ' — ' + (t.status || '?') + '; assigned by ' + (t.assignedBy ? t.assignedBy.who : '?') + ' to ' + (t.assignee ? t.assignee.who : '?') + ', ' + d(t.at) +
+                (t.outcome ? '\n  outcome: ' + t.outcome.result + (t.outcome.note ? ' — ' + t.outcome.note : '') : '') + said([t.id].concat(a.map(function (x) { return x.id; }))) +
                 (t.conversations || []).map(conv).join('') + (a.length ? '\n  done: ' + a.slice(0, 6).map(function (x) { return x.title; }).join('; ') + (a.length > 6 ? ' (+' + (a.length - 6) + ' more)' : '') + ' — last ' + d(a.reduce(function (m, x) { return x.at > m ? x.at : m; }, '')) : '') + l;
             });
             var talks = all.filter(function (e) { return kind(e) === 'conversation' && !used[e.id] && (e.decisions || []).length; }).slice(0, 15).map(function (e) { return '[' + e.id + '] ' + e.title + ' (' + d(e.at) + ') — decided: ' + e.decisions.join('; '); });
-            return result(c, tasks.length || talks.length ? 'Tasks, newest first (each with where it came from and what was done):\n' + tasks.join('\n\n') + (talks.length ? '\n\nConversations with decisions but no task:\n' + talks.join('\n') : '') : 'the work log is empty');
+            // decisions, each in its context and with how it relates to others (for a situation, check_decisions finds the nearest)
+            var decs = all.filter(function (e) { return e.kind === 'decision'; }), byId = {}; decs.forEach(function (x) { byId[x.id] = x; });
+            var REL = { revises: 'revises', diverges: 'diverges from', confirms: 'confirms' };
+            var decLines = decs.slice(0, 80).map(function (x) {
+              return '- [' + x.id + '] ' + x.title + (x.context && x.context.facets && x.context.facets.surface ? ' (' + x.context.facets.surface + ')' : '') + said([x.id]).replace('\n  ', ' — ') +
+                (x.relations || []).map(function (rl) { var o = byId[rl.to]; return '\n    ' + REL[rl.type] + ': ' + (o ? o.title : rl.to) + (rl.reason ? ' — ' + rl.reason : ''); }).join('');
+            });
+            return result(c, tasks.length || talks.length ? (decLines.length ? 'Decisions, newest first, each in its context (use check_decisions to find those nearest a situation; an older or opposite decision can still apply where its context fits):\n' + decLines.join('\n') + '\n\n' : '') +
+              'Tasks, newest first (each with its outcome, feedback, where it came from and what was done):\n' + tasks.join('\n\n') + (talks.length ? '\n\nConversations with decisions but no task:\n' + talks.join('\n') : '') : 'the work log is empty');
           }, function (e) { return result(c, 'could not read the work log: ' + e.message, true); });
+        case 'check_decisions':
+          if (!window.HubWork) return Promise.resolve(result(c, 'the work log is not available in this hub', true));
+          if (!str(i.situation, 2000)) return Promise.resolve(result(c, 'situation (a sentence or two) is required', true));
+          addShown('step', 'Checking earlier decisions in similar contexts');
+          return HubWork.cluster({ text: i.situation, k: 10 }).then(function (r) {
+            var REL = { revises: 'revises', diverges: 'diverges from', confirms: 'confirms' }, BACK = { revises: 'revised by', diverges: 'diverged from by', confirms: 'confirmed by' };
+            var facets = function (c) { return c && c.facets ? Object.keys(c.facets).map(function (k) { return k + ': ' + [].concat(c.facets[k]).join(', '); }).join('; ') : ''; };
+            return result(c, r.items.length ? 'Decisions in the nearest contexts (closeness ' + r.matching + ', 1 = same situation):\n\n' + r.items.map(function (x) {
+              var d = x.decision, ctx = d.context || {};
+              return '[' + d.id + '] ' + d.title + ' — closeness ' + x.score + ', ' + String(d.at || '').slice(0, 10) +
+                '\n  context: ' + (ctx.statement || '(none recorded)') + (facets(ctx) ? ' (' + facets(ctx) + ')' : '') +
+                x.relations.map(function (rl) { return '\n  ' + REL[rl.type] + ' [' + rl.to + '] ' + (rl.title || '') + ': ' + (rl.reason || '') + (rl.changed ? ' — changed: ' + rl.changed : ''); }).join('') +
+                x.relatedBy.map(function (rl) { return '\n  ' + BACK[rl.type] + ' [' + rl.from + '] ' + (rl.title || '') + ': ' + (rl.reason || '') + (rl.changed ? ' — changed: ' + rl.changed : ''); }).join('') +
+                (x.tasks.length ? '\n  led to: ' + x.tasks.map(function (t) { return t.title + ' (' + (t.outcome ? t.outcome.result + (t.outcome.note ? ': ' + String(t.outcome.note).slice(0, 100) : '') : t.status) + ')'; }).join('; ') : '') +
+                (x.signals.length ? '\n  feedback: ' + x.signals.slice(0, 4).map(function (g) { return g.type + (g.note ? ' — ' + String(g.note).slice(0, 100) : ''); }).join('; ') : '');
+            }).join('\n\n') : 'no decisions logged yet');
+          }, function (e) { return result(c, 'could not check decisions: ' + e.message, true); });
         case 'log_conversation':
           if (!window.HubWork) return Promise.resolve(result(c, 'the work log is not available in this hub', true));
           if (!str(i.title, 120) || typeof i.summary !== 'string' || i.summary.length < 20 || i.summary.length > 4000 || typeof i.between !== 'string') return Promise.resolve(result(c, 'title (up to 120 characters), summary (20 to 4000) and between are required', true));
