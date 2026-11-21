@@ -571,7 +571,7 @@
           return HubSite.copy(i.section).then(function (t) { return result(c, t.length > 12000 ? t.slice(0, 12000) + '\n…' : t); }, function (e) { return result(c, e.message, true); });
         case 'propose_site_change':
           if (!window.HubSite) return Promise.resolve(result(c, 'website changes are not available in this hub', true));
-          return proposeSite(c, { title: i.title, summary: i.summary, edits: (i.edits || []).map(function (e) {
+          return proposeSite(c, { taskId: typeof i.task_id === 'string' ? i.task_id : null, title: i.title, summary: i.summary, edits: (i.edits || []).map(function (e) {
             var o = { path: e.path }; if (e.sr != null) o.sr = e.sr; if (e.en != null) o.en = e.en;
             if (e.value != null) o.value = e.value.map(function (v) { var x = { network: v.network, url: v.url }; if (v.handle) x.handle = v.handle; return x; });
             return o;
@@ -659,11 +659,19 @@
           return confirmCard(c, 'Set the task to ' + i.status, i.note, 'On Work › Tasks, with this note in its history.', 'Set ' + i.status, function () {
             return HubTasks.update(tid, { status: i.status, note: i.note }).then(function (t) { return { shown: 'Task set to ' + t.status, model: 'task:' + t.id + ' "' + t.title + '" is now ' + t.status }; });
           });
+        case 'reopen_task':   // no card: reopening is easy to undo; the reason goes in the task's history
+          if (!window.HubTasks) return Promise.resolve(result(c, 'tasks are not available in this hub', true));
+          var rid = String(i.task_id || '').replace(/^task:/, '');
+          if (!str(rid, 40) || !str(i.reason, 500)) return Promise.resolve(result(c, 'task_id and a reason (up to 500 characters) are required', true));
+          return HubTasks.update(rid, { status: 'Open', note: 'Reopened by the hub assistant: ' + i.reason }).then(function (t) {
+            addShown('note', 'Reopened the task "' + t.title + '": ' + i.reason);
+            return result(c, 'task:' + t.id + ' "' + t.title + '" is Open again, with the reason in its history');
+          }, function (e) { return result(c, 'could not reopen it: ' + e.message, true); });
         case 'request_site_code_change':
           if (!window.HubSite) return Promise.resolve(result(c, 'website changes are not available in this hub', true));
           if (!str(i.title, 90) || !str(i.brief, 4000) || i.brief.length < 20) return Promise.resolve(result(c, 'title (up to 90 characters) and a brief (20 to 4000 characters) are required', true));
           return confirmCard(c, 'Ask the coding agent: ' + i.title, i.brief, 'It works on a copy of the site (usually 3 to 8 minutes) on a paid model; the preview appears on Work › Tasks. Nothing is published until an admin approves it.', 'Start', function () {
-            return HubSite.request({ title: i.title, brief: i.brief }, turnNow()).then(function (doc) {
+            return HubSite.request({ title: i.title, brief: i.brief }, turnNow(), typeof i.task_id === 'string' ? i.task_id : null).then(function (doc) {
               followRun(doc.id, i.title);
               return { shown: 'Started; the coding agent is working', model: 'started change ' + doc.id + ': the coding agent is working on a copy of the site; the preview appears on its page (#/website/preview?c=' + doc.id + ') in a few minutes. It is NOT published.' };
             });
@@ -731,7 +739,7 @@
             HubSite.drop(id); lastDiscarded = sameAs(change); if (currentTurn) currentTurn.discarded = true;
             addShown('card', 'Website change: ' + change.title, { outcome: 'Discarded' }); return resolveCard(result(c, DISCARDED));
           }
-          HubSite.save(change, id, turnNow()).then(function (doc) {
+          HubSite.save({ title: change.title, summary: change.summary, edits: change.edits, social: change.social }, id, turnNow(), change.taskId).then(function (doc) {
             addShown('card', 'Website change: ' + change.title, { outcome: 'Saved as a proposal; waiting for an admin to approve it' }); say('Saved as a proposal');
             resolveCard(result(c, 'saved as proposal ' + doc.id + '; it is NOT published: an admin approves it on Work › Tasks (#/work/tasks), which publishes it'));
           }, function (e) { HubSite.drop(id); addShown('card', 'Website change: ' + change.title, { outcome: 'Not saved: ' + e.message }); resolveCard(result(c, 'saving failed: ' + e.message, true)); });

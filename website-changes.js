@@ -92,8 +92,8 @@
     if (location.hash.indexOf('#/website/preview') !== 0) returnTo = location.hash || null;   // where Discard goes back to
     location.hash = '#/website/preview?c=' + encodeURIComponent(id);
   }
-  function save(change, draftId, turn) {   // turn: the chat turn it was asked in (the work log links the change's task to it)
-    return api('/changes', { method: 'POST', body: JSON.stringify({ change: change, turn: turn || null }) }).then(function (doc) {
+  function save(change, draftId, turn, taskId) {   // turn: the chat turn it was asked in; taskId: the Work › Tasks task it carries out
+    return api('/changes', { method: 'POST', body: JSON.stringify({ change: change, turn: turn || null, task_id: taskId || null }) }).then(function (doc) {
       if (draftId) { delete drafts[draftId]; keepDrafts(); }
       saved = [doc].concat(saved || []); list().then(redraw, redraw);
       if (location.hash.indexOf('c=' + encodeURIComponent(draftId)) > 0) location.hash = '#/website/preview?c=' + doc.id; else redraw();
@@ -101,8 +101,8 @@
     });
   }
   // a layout / code change: the coding agent builds it on a branch; its preview appears on the change's page
-  function request(code, turn) {
-    return api('/changes', { method: 'POST', body: JSON.stringify({ code: code, turn: turn || null }) }).then(function (doc) { saved = [doc].concat(saved || []); location.hash = '#/website/preview?c=' + doc.id; list().then(redraw, redraw); return doc; });
+  function request(code, turn, taskId) {
+    return api('/changes', { method: 'POST', body: JSON.stringify({ code: code, turn: turn || null, task_id: taskId || null }) }).then(function (doc) { saved = [doc].concat(saved || []); location.hash = '#/website/preview?c=' + doc.id; list().then(redraw, redraw); return doc; });
   }
   function revise(id, feedback) {
     return api('/changes/' + id + '/revise', { method: 'POST', body: JSON.stringify({ feedback: feedback }) }).then(function (doc) { return list().then(function () { redraw(); return doc; }); });
