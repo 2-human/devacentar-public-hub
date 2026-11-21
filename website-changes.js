@@ -14,7 +14,7 @@
   var SITE = HC.site || (LOCAL ? 'http://localhost:8786/' : 'https://centardeva.com/');
   // The frame is sandboxed with no origin of its own. Chrome stops such a frame from loading anything from localhost
   // (private network access), so on a local preview only it gets the hub's origin; the published hub keeps the strict one.
-  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=49b37a7913'; document.head.appendChild(css);
+  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=7659f1b987'; document.head.appendChild(css);
 
   /* the requests are listed on Work › Tasks (views.js calls taskTable); #/website/changes stays for old links */
 
@@ -67,12 +67,24 @@
   function list() {
     return (listing = api('/changes').then(function (j) {
       saved = j.changes; you = j.you || you; publishing = !!j.publishing; err = '';
+      document.dispatchEvent(new CustomEvent('hub-site-changes'));   // the chat's live run cards follow along
+      setTimeout(redraw, 0);   // and the open change page, whoever asked for the fresh list
       clearTimeout(poll); if (saved.some(function (c) { return /ing$/.test(c.status); })) poll = setTimeout(function () { list().then(redraw, redraw); }, 8000);
       return saved;
     }, function (e) { err = e.message; throw e; })).then(function (x) { listing = null; return x; }, function (e) { listing = null; throw e; });
   }
   var ensure = function () { if (!saved && !err && !listing) list().then(redraw, redraw); };
-  function redraw() { var p = location.hash.slice(1); if (p.indexOf('/website/changes') === 0 || p.indexOf('/website/preview') === 0 || p.indexOf('/work/tasks') === 0) H.render({ drawer: false }); }
+  // a code change's page while its run goes on: only the run bar changes, so it is updated in place and the site below is
+  // left alone (a full redraw would reload it every few seconds); anything else redraws the screen
+  var shapeOf = function (c) { return c ? [c.id, c.status, c.preview && c.preview.sha, (c.runs || []).length, view.mode, view.lang, view.width].join('|') : ''; }, lastShape = '';
+  function redraw() {
+    var p = location.hash.slice(1);
+    if (p.indexOf('/website/preview') === 0) {
+      var m = /[?&]c=([^&]+)/.exec(p), c = m && find(decodeURIComponent(m[1])), bar = document.querySelector('#app-main .runbar');
+      if (c && c.lane === 'code' && bar && shapeOf(c) === lastShape) { var t = document.createElement('div'); t.innerHTML = runBar(c); if (t.firstChild) bar.replaceWith(t.firstChild); return; }
+    }
+    if (p.indexOf('/website/changes') === 0 || p.indexOf('/website/preview') === 0 || p.indexOf('/work/tasks') === 0) H.render({ drawer: false });
+  }
   function find(id) { return drafts[id] ? { id: id, draft: true, status: 'draft', change: drafts[id] } : (saved || []).filter(function (c) { return c.id === id; })[0]; }
   function validate(change) { return site().then(function (s) { return s.C.validate(s.dict, change); }); }
   function preview(change, id) {
@@ -132,10 +144,12 @@
     return s.doc.html(d, lang, 'home').replace('<head>', '<head>' + add).replace('</body>', hl + '</body>');
   }
   function fill() {
-    var f = document.querySelector('#app-main [data-sitepv]'); if (!f || f.getAttribute('data-filled') === key()) return;
+    var f = document.querySelector('#app-main [data-sitepv]'); if (!f) return;
     var c = find(f.getAttribute('data-sitepv')); if (!c) return;
-    f.setAttribute('data-filled', key());
-    if (c.lane === 'code') { var base = view.mode === 'after' && c.preview ? c.preview.preview.replace(/\/?$/, '/') : 'https://centardeva.com/'; f.src = base + (view.lang === 'sr' ? 'rs' : 'en') + '/'; return; }
+    var k = key() + (c.lane === 'code' && c.preview ? c.preview.sha : '');   // the agent's version appearing refills the frame
+    if (f.getAttribute('data-filled') === k) return;
+    f.setAttribute('data-filled', k);
+    if (c.lane === 'code') { var base = view.mode === 'after' && c.preview ? c.preview.preview.replace(/\/?$/, '/') : SITE; f.src = base + (view.lang === 'sr' ? 'rs' : 'en') + '/'; return; }
     site().then(function (s) { f.srcdoc = srcdoc(s, c.change); }, function (e) { f.replaceWith(Object.assign(document.createElement('p'), { className: 'empty', textContent: e.message })); });
   }
   var key = function () { return view.lang + view.mode + view.width + view.marks; };
@@ -185,27 +199,60 @@
   var OUT = { revised: 'Revised', accepted: 'Accepted', discarded: 'Discarded', failed: 'Failed' };
   function runsTable(c) {
     var runs = c.runs || []; if (!runs.length) return '';
-    return '<details class="sitepv-brief"' + (runs.length > 1 ? ' open' : '') + '><summary>Attempts (' + runs.length + ')</summary><table class="sitepv-list"><thead><tr><th scope="col">#</th><th scope="col">Step</th><th scope="col">Started by</th><th scope="col">Result</th><th scope="col">What came of it</th><th scope="col">Time</th><th scope="col">Cost</th><th scope="col">Model</th></tr></thead><tbody>' +
+    return '<details class="sitepv-brief" data-attempts' + (runs.length > 1 ? ' open' : '') + '><summary>Attempts (' + runs.length + ')</summary><table class="sitepv-list"><thead><tr><th scope="col">#</th><th scope="col">Step</th><th scope="col">Started by</th><th scope="col">Result</th><th scope="col">What came of it</th><th scope="col">Time</th><th scope="col">Cost</th><th scope="col">Model</th></tr></thead><tbody>' +
       runs.map(function (r) {
         return '<tr><td>' + r.n + '</td><td>' + esc(STEP[r.action] || r.action) + (r.runUrl ? ' · <a href="' + esc(r.runUrl) + '" target="_blank" rel="noopener">run</a>' : '') + '</td><td>' + esc(r.why || '') + '</td><td>' + esc(RESULT[r.result] || r.result) + (r.summary ? '<br><span class="sitepv-note">' + esc(r.summary) + '</span>' : '') + (r.error ? '<br><span class="sitepv-error">' + esc(r.error) + '</span>' : '') +
           '</td><td>' + ((r.outcomes || []).length ? r.outcomes.map(function (o) { return esc(OUT[o.type] || o.type) + (o.type === 'revised' && o.note ? '<br><span class="sitepv-note">' + esc(o.note) + '</span>' : ''); }).join(' → ') : esc(r.result === 'shown' ? 'On show' : '–')) + '</td><td>' + esc(r.seconds ? Math.round(r.seconds / 6) / 10 + ' min' : '–') + '</td><td>' + esc(r.cost ? '$' + r.cost.toFixed(2) : '–') + '</td><td>' + esc(r.model || '–') + '</td></tr>';
       }).join('') + '</tbody></table></details>';
   }
+  // the run bar (operator, 21 Nov 2026): one line above the site, so the site stays in view while the coding agent works.
+  // Working: the phase from the run's jobs (changes.mjs progressOf), a clock, Discard, the attempts and the run. Ready:
+  // what the agent did, how long, the cost, and Approve / Ask for changes / Discard. Failed: why, Try again / Discard.
+  var PHASES = { build: [['queued', 'Request'], ['editing', 'Editing files'], ['building', 'Building the preview'], ['ready', 'Ready']],
+    preview: [['queued', 'Request'], ['building', 'Building the preview'], ['ready', 'Ready']], publish: [['queued', 'Request'], ['publishing', 'Publishing'], ['ready', 'Live']] };
+  PHASES.revise = PHASES.build; PHASES.revert = PHASES.publish;
+  var clock = function (iso) { var s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  setInterval(function () { document.querySelectorAll('[data-run-clock]').forEach(function (n) { n.textContent = clock(n.getAttribute('data-run-clock')); }); }, 1000);
+  function runBar(c) {
+    var run = (c.runs || [])[(c.runs || []).length - 1], pr = c.progress, action = (pr && pr.action) || (c.run && c.run.action) || 'build';
+    var steps = function (current) {
+      var list = PHASES[action] || PHASES.build, at = list.map(function (x) { return x[0]; }).indexOf(current);
+      return '<ol class="runbar-steps">' + list.map(function (x, i) { return '<li data-s="' + (i < at ? 'done' : i === at ? 'now' : 'todo') + '">' + esc(x[1]) + '</li>'; }).join('') + '</ol>';
+    };
+    var links = (c.runs || []).length ? ' <a href="#" data-run-attempts>attempts</a>' : '';
+    links += c.runUrl || (pr && pr.runUrl) ? ' · <a href="' + esc(c.runUrl || pr.runUrl) + '" target="_blank" rel="noopener">run ↗</a>' : '';
+    if (/ing$/.test(c.status)) {
+      var since = (pr && pr.startedAt) || (c.run && c.run.at) || new Date().toISOString();
+      var who = c.status === 'publishing' ? 'Publishing to centardeva.com' : c.status === 'reverting' ? 'Undoing it on centardeva.com' : (action === 'revise' ? 'The coding agent is revising it' : action === 'preview' ? 'Building the preview again' : 'The coding agent is working');
+      return '<div class="runbar" data-st="working" data-pick-pass><div class="runbar-main"><span class="runbar-dot" aria-hidden="true"></span><strong>' + esc(who) + '</strong> · <span data-run-clock="' + esc(since) + '">' + clock(since) + '</span>' + steps((pr && pr.phase) || 'queued') +
+        '</div><div class="runbar-side">' + actions(c) + '<span class="runbar-links">' + links + '</span></div></div>';
+    }
+    if (c.status === 'proposed' && c.preview) {
+      var t = run && run.seconds ? Math.floor(run.seconds / 60) + ':' + String(run.seconds % 60).padStart(2, '0') : '', cost = run && run.cost ? '$' + run.cost.toFixed(2) : c.cost ? '$' + c.cost.toFixed(2) : '';
+      return '<div class="runbar" data-st="ready" data-pick-pass><div class="runbar-main"><span class="runbar-ok" aria-hidden="true">✓</span><strong>Preview ready</strong>' + (t ? ' · ' + t : '') + (cost ? ' · ' + cost : '') +
+        (c.preview.summary ? '<span class="runbar-summary">' + esc(c.preview.summary) + '</span>' : '') + (c.error ? '<span class="runbar-summary sitepv-error">' + esc(c.error) + '</span>' : '') +
+        '</div><div class="runbar-side">' + seg('Version', [['mode', 'before', 'Now'], ['mode', 'after', 'After']]) + actions(c) + '<span class="runbar-links">' + links + '</span></div></div>';
+    }
+    if (c.status === 'failed') return '<div class="runbar" data-st="failed" data-pick-pass><div class="runbar-main"><span class="runbar-bad" aria-hidden="true">✕</span><strong>It did not work</strong>' + (c.error ? '<span class="runbar-summary">' + esc(c.error) + '</span>' : '') + '</div><div class="runbar-side">' + actions(c) + '<span class="runbar-links">' + links + '</span></div></div>';
+    return '';
+  }
   function codePage(c) {
-    var p = c.preview, building = c.status === 'building', mins = c.run ? Math.max(0, Math.round((Date.now() - Date.parse(c.run.at)) / 60000)) : 0;
+    var p = c.preview, finished = FINISHED.indexOf(c.status) >= 0, live = !p || view.mode !== 'after';
+    lastShape = shapeOf(c);
     return '<h1>' + esc(c.change.title) + '</h1>' +
       '<p class="sitepv-status"><span class="sitepv-badge" data-st="' + esc(c.status) + '">' + esc(STATUS[c.status] || c.status) + '</span> Layout / code change' + (c.byEmail ? ' · asked by ' + esc(c.byEmail) : '') +
-      (c.cost ? ' · agent cost $' + esc(c.cost.toFixed(2)) : '') + (c.runUrl ? ' · <a href="' + esc(c.runUrl) + '" target="_blank" rel="noopener">the run</a>' : '') + (c.commitUrl ? ' · <a href="' + esc(c.commitUrl) + '" target="_blank" rel="noopener">the commit</a>' : '') + '</p>' +
-      (c.error ? '<p class="sitepv-error">' + esc(c.error) + '</p>' : '') +
+      (c.cost ? ' · agent cost $' + esc(c.cost.toFixed(2)) : '') + (c.commitUrl ? ' · <a href="' + esc(c.commitUrl) + '" target="_blank" rel="noopener">the commit</a>' : '') + '</p>' +
+      (finished ? actions(c) + '<details class="sitepv-brief"><summary>What was asked</summary><p>' + esc(c.change.brief) + '</p></details>' + runsTable(c) + recordBlock(c) :
+      runBar(c) +
       '<details class="sitepv-brief"><summary>What was asked</summary><p>' + esc(c.change.brief) + '</p>' + (c.change.feedback || []).map(function (f) { return '<p><strong>Feedback</strong> (' + esc(f.by) + '): ' + esc(f.text) + '</p>'; }).join('') + '</details>' +
       runsTable(c) +
-      (building ? '<p class="sitepv-note">The coding agent is making this on a copy of the site (started ' + (mins ? mins + ' min ago' : 'just now') + '; usually 3 to 8 minutes). You can keep working; this page updates by itself.</p>' : '') +
-      (FINISHED.indexOf(c.status) >= 0 ? actions(c) + recordBlock(c) : (p && p.summary ? '<p><strong>What the agent did:</strong> ' + esc(p.summary) + '</p>' : '') +
       (p ? '<p class="sitepv-note">Preview address (expires in 7 days): <a href="' + esc(p.preview) + '" target="_blank" rel="noopener">' + esc(p.preview.replace(/^https:\/\//, '')) + '</a>' + (you.role === 'admin' ? ' · <a href="' + esc(p.compareUrl) + '" target="_blank" rel="noopener">the code changes</a>' : '') + '</p>' : '') +
-      actions(c) +
-      (p ? '<div class="sitepv-bar" data-pick-pass>' + seg('Version', [['mode', 'before', 'Now'], ['mode', 'after', 'After the change']]) + seg('Language', [['lang', 'sr', 'Serbian'], ['lang', 'en', 'English']]) + seg('Width', [['width', 'desktop', 'Desktop'], ['width', 'phone', 'Phone']]) + '</div>' +
-        '<div class="sitepv-stage" data-w="' + view.width + '"><iframe class="sitepv-frame" data-sitepv="' + esc(c.id) + '" title="' + esc('Preview: ' + c.change.title + ' (' + (view.mode === 'after' ? 'after the change' : 'now') + ', ' + (view.lang === 'sr' ? 'Serbian' : 'English') + ')') + '" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe></div>' : ''));
+      // the site, always: the live one while there is no preview (or with Now), the agent's version with After
+      '<div class="sitepv-bar" data-pick-pass>' + (c.status !== 'proposed' && p ? seg('Version', [['mode', 'before', 'Now'], ['mode', 'after', 'After the change']]) : '') + seg('Language', [['lang', 'sr', 'Serbian'], ['lang', 'en', 'English']]) + seg('Width', [['width', 'desktop', 'Desktop'], ['width', 'phone', 'Phone']]) +
+        '<span class="sitepv-note">' + (live ? (p ? 'Now: the live site' : 'The live site, until the preview is ready') : 'After: the coding agent\'s version') + '</span></div>' +
+      '<div class="sitepv-stage" data-w="' + view.width + '"><iframe class="sitepv-frame" data-sitepv="' + esc(c.id) + '" title="' + esc((live ? 'The live site' : 'Preview: ' + c.change.title) + ' (' + (view.lang === 'sr' ? 'Serbian' : 'English') + ')') + '" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe></div>');
   }
+
 
   H.route('/website/preview', function (rest, query) {
     var id = (query && query.c) || '', c = find(id); ensure();
@@ -246,6 +293,8 @@
   /* ─── wiring ─── */
   H.onRender(fill);
   document.addEventListener('click', function (e) {
+    var at = e.target.closest && e.target.closest('#app-main [data-run-attempts]');
+    if (at) { e.preventDefault(); var d = document.querySelector('#app-main details[data-attempts]'); if (d) { d.open = true; d.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } return; }
     var b = e.target.closest && e.target.closest('#app-main [data-pv], #app-main [data-chg]'); if (!b) return;
     if (b.hasAttribute('data-chg')) return act(b.getAttribute('data-id'), b.getAttribute('data-chg'));
     view[b.getAttribute('data-pv')] = b.getAttribute('data-pv-v');
@@ -269,7 +318,7 @@
     }).join('') + '</tbody></table>';
   }
 
-  window.HubSite = { base: SITE, local: LOCAL, site: site, copy: copy, validate: validate, preview: preview, save: save, drop: drop, list: list, request: request, revise: revise, taskTable: taskTable };
+  window.HubSite = { base: SITE, local: LOCAL, get: find, site: site, copy: copy, validate: validate, preview: preview, save: save, drop: drop, list: list, request: request, revise: revise, taskTable: taskTable };
   // this file loads after the hub's first paint: a link straight to one of these pages was drawn by the /website route
   redraw();
 })();

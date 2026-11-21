@@ -45,3 +45,20 @@
 .wl-facets span { display: inline-block; font-size: 12px; margin: 2px 8px 2px 0; opacity: .8; }
 .wl-rel li { margin: 6px 0; }
 .wl-surfaces .btn { margin: 0 6px 6px 0; }
+
+/* the run bar: one line above the site while the coding agent works, then its result with the decision */
+.runbar { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin: 12px 0; padding: 8px 12px; border: 1px solid var(--hub-line); border-radius: 10px; background: var(--hub-card); }
+.runbar-main { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; flex: 1 1 360px; }
+.runbar-side { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.runbar-side .sitepv-actions { margin: 0; }
+.runbar-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--hub-accent); animation: runbar-pulse 1.4s ease-in-out infinite; }
+@keyframes runbar-pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .runbar-dot { animation: none; } }
+.runbar-ok { color: #3f7d4a; font-weight: 700; } .runbar-bad { color: #b0413e; font-weight: 700; }
+.runbar-steps { display: inline-flex; flex-wrap: wrap; gap: 4px; margin: 0 0 0 6px; padding: 0; list-style: none; font-size: 12px; }
+.runbar-steps li { padding: 1px 8px; border-radius: 999px; border: 1px solid var(--hub-line); opacity: .55; }
+.runbar-steps li[data-s="done"] { opacity: .85; } .runbar-steps li[data-s="done"]::before { content: "✓ "; }
+.runbar-steps li[data-s="now"] { opacity: 1; border-color: var(--hub-accent); font-weight: 600; }
+.runbar-summary { flex-basis: 100%; font-size: 13px; opacity: .85; }
+.runbar-links { font-size: 12px; }
+.runbar[data-st="ready"] { border-color: #3f7d4a; } .runbar[data-st="failed"] { border-color: #b0413e; }

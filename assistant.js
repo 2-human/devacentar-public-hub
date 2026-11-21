@@ -37,7 +37,7 @@
   };
 
   /* ─── styles and markup ─── */
-  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'assistant.css?v=5ce03dde70'; css.setAttribute('data-asst', ''); document.head.appendChild(css);
+  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'assistant.css?v=d203cc1f7b'; css.setAttribute('data-asst', ''); document.head.appendChild(css);
   var ICON = {
     chat: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg>',
     pick: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 4l7 16 2.5-6.5L20 11z"/></svg>',
@@ -664,6 +664,7 @@
           if (!str(i.title, 90) || !str(i.brief, 4000) || i.brief.length < 20) return Promise.resolve(result(c, 'title (up to 90 characters) and a brief (20 to 4000 characters) are required', true));
           return confirmCard(c, 'Ask the coding agent: ' + i.title, i.brief, 'It works on a copy of the site (usually 3 to 8 minutes) on a paid model; the preview appears on Work › Tasks. Nothing is published until an admin approves it.', 'Start', function () {
             return HubSite.request({ title: i.title, brief: i.brief }, turnNow()).then(function (doc) {
+              followRun(doc.id, i.title);
               return { shown: 'Started; the coding agent is working', model: 'started change ' + doc.id + ': the coding agent is working on a copy of the site; the preview appears on its page (#/website/preview?c=' + doc.id + ') in a few minutes. It is NOT published.' };
             });
           });
@@ -671,7 +672,7 @@
           if (!window.HubSite) return Promise.resolve(result(c, 'website changes are not available in this hub', true));
           if (!str(i.change_id, 40) || !str(i.feedback, 2000)) return Promise.resolve(result(c, 'change_id and feedback are required', true));
           return confirmCard(c, 'Send this to the coding agent', i.feedback, 'It adjusts the same copy of the site (a few minutes, paid model); the preview updates when it is done.', 'Send', function () {
-            return HubSite.revise(i.change_id, i.feedback).then(function () { return { shown: 'Sent; the coding agent is working', model: 'sent: the coding agent is adjusting change ' + i.change_id + '; the preview updates in a few minutes' }; });
+            return HubSite.revise(i.change_id, i.feedback).then(function () { followRun(i.change_id, 'Revision'); return { shown: 'Sent; the coding agent is working', model: 'sent: the coding agent is adjusting change ' + i.change_id + '; the preview updates in a few minutes' }; });
           });
         default:   // the server knows a newer tool than this page: the hub was published since the page was opened
           addShown('note', 'This hub page is older than the assistant: reload the page to use "' + c.name + '".');
@@ -804,6 +805,23 @@
   }
 
   /* a card for an action that costs or starts something: the person says yes or no; go() -> { shown, model } */
+  /* a coding run, followed live in the chat (the same phases as the run bar on its page), ending with the preview */
+  var PHASE = { queued: 'Request received', editing: 'Editing files', building: 'Building the preview', publishing: 'Publishing' };
+  function followRun(id, title) {
+    var card = el('div', { class: 'asst-msg asst-run', role: 'status', 'aria-live': 'polite', 'data-run': id }), started = Date.now();
+    log.appendChild(card); log.scrollTop = log.scrollHeight;
+    function paint() {
+      var c = HubSite.get && HubSite.get(id), st = c ? c.status : 'building', pr = c && c.progress;
+      if (!document.contains(card)) return document.removeEventListener('hub-site-changes', paint);
+      var since = (pr && pr.startedAt) ? Date.parse(pr.startedAt) : started, sec = Math.max(0, Math.round((Date.now() - since) / 1000)), t = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+      var open = '<a class="asst-btn asst-sm" href="#/website/preview?c=' + esc(encodeURIComponent(id)) + '">';
+      if (st === 'proposed') { card.innerHTML = '<p><strong>✓ Preview ready:</strong> ' + esc(title) + '</p>' + (c.preview && c.preview.summary ? '<p class="asst-meta">' + esc(c.preview.summary) + '</p>' : '') + '<p>' + open + 'Show the preview</a></p>'; card.classList.add('asst-run-done'); return document.removeEventListener('hub-site-changes', paint); }
+      if (st === 'failed') { card.innerHTML = '<p><strong>✕ It did not work:</strong> ' + esc(title) + '</p>' + (c.error ? '<p class="asst-meta">' + esc(c.error) + '</p>' : '') + '<p>' + open + 'Open</a></p>'; card.classList.add('asst-run-done'); return document.removeEventListener('hub-site-changes', paint); }
+      card.innerHTML = '<p><span class="runbar-dot" aria-hidden="true"></span> <strong>The coding agent is working:</strong> ' + esc(title) + '</p><p class="asst-meta">' + esc(PHASE[(pr && pr.phase) || 'queued'] || 'Working') + ' · ' + t + ' · ' + open + 'see it on the site</a></p>';
+    }
+    document.addEventListener('hub-site-changes', paint); paint();
+    var tick = setInterval(function () { if (!document.contains(card) || card.classList.contains('asst-run-done')) return clearInterval(tick); paint(); }, 1000);
+  }
   function confirmCard(c, question, quote, note, yes, go) {
     return present(c, { title: question, quote: quote, note: note, yes: yes }).then(function (ok) {
       if (!ok) { addShown('card', question, { outcome: 'Cancelled' }); return result(c, 'declined by the user; nothing was started'); }

@@ -101,3 +101,10 @@ html.asst-picking #app-main,html.asst-picking #app-drawer{cursor:crosshair}
 .asst-stack-children:empty { display: none; }
 .asst-stack-applied > .asst-stack-row .asst-stack-state { color: #3f7d4a; opacity: 1; }
 .asst-stack-discarded > .asst-stack-row .asst-stack-title, .asst-stack-failed > .asst-stack-row .asst-stack-title { opacity: .6; }
+
+/* a coding run followed in the chat */
+.asst-run { border: 1px solid var(--hub-line); border-radius: 10px; padding: 8px 12px; }
+.asst-run p { margin: 2px 0; }
+.asst-run .runbar-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--hub-accent); animation: runbar-pulse 1.4s ease-in-out infinite; }
+.asst-run-done { border-color: #3f7d4a; }
+@keyframes runbar-pulse { 50% { opacity: .3; } }
