@@ -84,3 +84,20 @@ html.asst-picking #app-main,html.asst-picking #app-drawer{cursor:crosshair}
 
 /* suggested tasks (suggest_tasks) */
 .asst-sugg{padding:8px 0;border-top:1px solid var(--hub-line)}.asst-sugg:first-of-type{border-top:0}.asst-sugg p{margin:0 0 4px}.asst-sugg .asst-card-actions{margin-top:6px}
+
+/* several proposals in one reply: a stack of compact rows; a dependent one nested under the one it needs */
+.asst-stack .asst-stack-item { border-top: 1px solid var(--hub-line); padding: 6px 0; }
+.asst-stack .asst-stack-item:first-child { border-top: 0; }
+.asst-stack-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.asst-stack-title { flex: 1 1 160px; text-align: left; background: none; border: 0; padding: 2px 0; font: inherit; font-weight: 600; color: inherit; cursor: pointer; }
+.asst-stack-title::before { content: "▸ "; opacity: .6; } .asst-stack-title[aria-expanded="true"]::before { content: "▾ "; }
+.asst-stack-state { font-size: 12px; opacity: .75; }
+.asst-stack-btns { display: inline-flex; gap: 6px; }
+.asst-btn.asst-sm { padding: 3px 10px; font-size: 12px; min-height: 0; }
+.asst-btn.asst-sm:disabled { opacity: .45; cursor: not-allowed; }
+.asst-stack-detail { margin: 4px 0 2px; }
+.asst-stack-detail blockquote { margin: 4px 0; }
+.asst-stack-children { margin-left: 16px; border-left: 2px solid var(--hub-line); padding-left: 10px; }
+.asst-stack-children:empty { display: none; }
+.asst-stack-applied > .asst-stack-row .asst-stack-state { color: #3f7d4a; opacity: 1; }
+.asst-stack-discarded > .asst-stack-row .asst-stack-title, .asst-stack-failed > .asst-stack-row .asst-stack-title { opacity: .6; }

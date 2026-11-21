@@ -179,6 +179,18 @@
       '<div class="sitepv-actions" data-pick-pass><button type="button" data-chg="copydraft" data-id="' + esc(c.id) + '">Copy</button><button type="button" data-chg="redraft" data-id="' + esc(c.id) + '"' + (drafting[c.id] === 'busy' ? ' disabled' : '') + '>' + (drafting[c.id] === 'busy' ? 'Redrafting…' : 'Redraft') + '</button></div>' +
       '<p class="sitepv-note">Drafted ' + esc(d.at ? new Date(d.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '') + ' by ' + esc(d.model || '') + (d.costUSD ? ' ($' + esc(d.costUSD.toFixed(3)) + ')' : '') + '.</p>';
   }
+  // every attempt of the coding agent on this change (changes.mjs runs[]): what started it, how it went, what came of it;
+  // the work log keeps each one as an action, with its outcome as a signal
+  var STEP = { build: 'First build', revise: 'Revision', preview: 'Preview again' }, RESULT = { running: 'Working…', shown: 'Preview', failed: 'Failed' };
+  var OUT = { revised: 'Revised', accepted: 'Accepted', discarded: 'Discarded', failed: 'Failed' };
+  function runsTable(c) {
+    var runs = c.runs || []; if (!runs.length) return '';
+    return '<details class="sitepv-brief"' + (runs.length > 1 ? ' open' : '') + '><summary>Attempts (' + runs.length + ')</summary><table class="sitepv-list"><thead><tr><th scope="col">#</th><th scope="col">Step</th><th scope="col">Started by</th><th scope="col">Result</th><th scope="col">What came of it</th><th scope="col">Time</th><th scope="col">Cost</th><th scope="col">Model</th></tr></thead><tbody>' +
+      runs.map(function (r) {
+        return '<tr><td>' + r.n + '</td><td>' + esc(STEP[r.action] || r.action) + (r.runUrl ? ' · <a href="' + esc(r.runUrl) + '" target="_blank" rel="noopener">run</a>' : '') + '</td><td>' + esc(r.why || '') + '</td><td>' + esc(RESULT[r.result] || r.result) + (r.summary ? '<br><span class="sitepv-note">' + esc(r.summary) + '</span>' : '') + (r.error ? '<br><span class="sitepv-error">' + esc(r.error) + '</span>' : '') +
+          '</td><td>' + ((r.outcomes || []).length ? r.outcomes.map(function (o) { return esc(OUT[o.type] || o.type) + (o.type === 'revised' && o.note ? '<br><span class="sitepv-note">' + esc(o.note) + '</span>' : ''); }).join(' → ') : esc(r.result === 'shown' ? 'On show' : '–')) + '</td><td>' + esc(r.seconds ? Math.round(r.seconds / 6) / 10 + ' min' : '–') + '</td><td>' + esc(r.cost ? '$' + r.cost.toFixed(2) : '–') + '</td><td>' + esc(r.model || '–') + '</td></tr>';
+      }).join('') + '</tbody></table></details>';
+  }
   function codePage(c) {
     var p = c.preview, building = c.status === 'building', mins = c.run ? Math.max(0, Math.round((Date.now() - Date.parse(c.run.at)) / 60000)) : 0;
     return '<h1>' + esc(c.change.title) + '</h1>' +
@@ -186,6 +198,7 @@
       (c.cost ? ' · agent cost $' + esc(c.cost.toFixed(2)) : '') + (c.runUrl ? ' · <a href="' + esc(c.runUrl) + '" target="_blank" rel="noopener">the run</a>' : '') + (c.commitUrl ? ' · <a href="' + esc(c.commitUrl) + '" target="_blank" rel="noopener">the commit</a>' : '') + '</p>' +
       (c.error ? '<p class="sitepv-error">' + esc(c.error) + '</p>' : '') +
       '<details class="sitepv-brief"><summary>What was asked</summary><p>' + esc(c.change.brief) + '</p>' + (c.change.feedback || []).map(function (f) { return '<p><strong>Feedback</strong> (' + esc(f.by) + '): ' + esc(f.text) + '</p>'; }).join('') + '</details>' +
+      runsTable(c) +
       (building ? '<p class="sitepv-note">The coding agent is making this on a copy of the site (started ' + (mins ? mins + ' min ago' : 'just now') + '; usually 3 to 8 minutes). You can keep working; this page updates by itself.</p>' : '') +
       (FINISHED.indexOf(c.status) >= 0 ? actions(c) + recordBlock(c) : (p && p.summary ? '<p><strong>What the agent did:</strong> ' + esc(p.summary) + '</p>' : '') +
       (p ? '<p class="sitepv-note">Preview address (expires in 7 days): <a href="' + esc(p.preview) + '" target="_blank" rel="noopener">' + esc(p.preview.replace(/^https:\/\//, '')) + '</a>' + (you.role === 'admin' ? ' · <a href="' + esc(p.compareUrl) + '" target="_blank" rel="noopener">the code changes</a>' : '') + '</p>' : '') +

@@ -37,7 +37,7 @@
   };
 
   /* ─── styles and markup ─── */
-  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'assistant.css?v=5302f3593c'; css.setAttribute('data-asst', ''); document.head.appendChild(css);
+  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'assistant.css?v=5ce03dde70'; css.setAttribute('data-asst', ''); document.head.appendChild(css);
   var ICON = {
     chat: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg>',
     pick: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 4l7 16 2.5-6.5L20 11z"/></svg>',
@@ -356,7 +356,7 @@
         if (fin.stop_reason === 'pause_turn') return turn();
         if (!calls.length) return;
         if (++rounds > MAX_ROUNDS) { addShown('note', 'Stopped after ' + MAX_ROUNDS + ' steps.'); return; }
-        return calls.reduce(function (p, c) { return p.then(function (acc2) { return run(c).then(function (r) { acc2.push(r); return acc2; }); }); }, Promise.resolve([]))
+        return runRound(calls)
           .then(function (results) {
             turnInfo.toolErrors = results.every(function (r) { return r.is_error; }) ? turnInfo.toolErrors + results.length : 0;
             messages.push({ role: 'user', content: results }); save(); return turn();
@@ -424,6 +424,95 @@
 
   /* ─── tools: the hub's own functions; writes wait for the person's yes ─── */
   var str = function (v, n) { return typeof v === 'string' && v.length > 0 && v.length <= (n || 300); };
+  /* ─── proposals that wait for a yes: one card, or a stack when a reply proposes several (operator, 21 Nov 2026) ───
+   * Two or more proposals in one reply (website changes, coding-agent requests, tasks, task updates, log entries) appear at
+   * once as a stack: each with its title and small Apply / Discard, its details a click away (a website change's title also
+   * shows its preview). A proposal with depends_on is nested under the one it names and can only be applied once that one
+   * is applied; if that one is discarded or fails, it can only be discarded. Each is decided on its own; the reply goes on
+   * when all are. Other tools in the same reply run first, in order. */
+  var STACKABLE = ['propose_site_change', 'request_site_code_change', 'revise_site_code_change', 'create_task', 'update_task', 'log_conversation'];
+  var stack = null;
+  function runRound(calls) {
+    var seq = function (list) { return list.reduce(function (p, c) { return p.then(function (acc) { return run(c).then(function (r) { acc.push(r); return acc; }); }); }, Promise.resolve([])); };
+    var props = calls.filter(function (c) { return STACKABLE.indexOf(c.name) >= 0; });
+    if (props.length < 2) return seq(calls);
+    var others = calls.filter(function (c) { return props.indexOf(c) < 0; });
+    return seq(others).then(function (first) {
+      openStack(props);
+      return Promise.all(props.map(function (c) { return run(c).then(function (r) { settleRow(c, r); return r; }); })).then(function (rest) {
+        closeStack();
+        var all = first.concat(rest);
+        return calls.map(function (c) { return all.filter(function (r) { return r.tool_use_id === c.id; })[0] || result(c, 'not run', true); });
+      });
+    });
+  }
+  function openStack(props) {
+    var box = el('div', { class: 'asst-msg asst-card asst-stack', role: 'group', 'aria-label': 'Proposals' });
+    box.innerHTML = '<p class="asst-card-q">' + props.length + ' proposals: apply or discard each</p><div class="asst-stack-list"></div>';
+    stack = { el: box, rows: {}, byKey: {}, shown: false };
+    props.forEach(function (c) {
+      var i = c.input || {}, key = typeof i.key === 'string' && i.key ? i.key : c.id;
+      var row = el('div', { class: 'asst-stack-item', 'data-call': c.id });
+      row.innerHTML = '<div class="asst-stack-row"><button type="button" class="asst-stack-title" aria-expanded="false"></button><span class="asst-stack-state">Checking…</span>' +
+        '<span class="asst-stack-btns"><button type="button" class="asst-btn asst-sm asst-yes" disabled>Apply</button><button type="button" class="asst-btn asst-sm asst-no" disabled>Discard</button></span></div>' +
+        '<div class="asst-stack-detail" hidden></div><div class="asst-stack-children"></div>';
+      row.querySelector('.asst-stack-title').textContent = i.title || i.change_id || i.task_id || c.name;
+      var r = { c: c, el: row, key: key, dep: typeof i.depends_on === 'string' && i.depends_on ? i.depends_on : null, state: 'pending', spec: null, resolve: null };
+      stack.rows[c.id] = r; stack.byKey[key] = r;
+    });
+    Object.keys(stack.rows).forEach(function (id) {   // nest each under the one it depends on (when that one is in this reply)
+      var r = stack.rows[id], parent = r.dep && r.dep !== r.key && stack.byKey[r.dep];
+      r.parent = parent || null;
+      (parent ? parent.el.querySelector('.asst-stack-children') : box.querySelector('.asst-stack-list')).appendChild(r.el);
+    });
+    log.appendChild(box); log.scrollTop = log.scrollHeight;
+  }
+  function closeStack() { if (stack && stack.el.parentNode) stack.el.parentNode.removeChild(stack.el); stack = null; }
+  // whether a row may be applied: on its own, or once the one it depends on is applied
+  function gate(r) {
+    if (!r.spec || r.state !== 'pending') return;
+    var p = r.parent, yes = r.el.querySelector('.asst-yes'), no = r.el.querySelector('.asst-no'), st = r.el.querySelector('.asst-stack-state'), name = p ? '"' + p.el.querySelector('.asst-stack-title').textContent + '"' : '';
+    no.disabled = false;
+    if (!p || p.state === 'applied') { yes.disabled = false; st.textContent = ''; }
+    else if (p.state === 'pending' || p.state === 'working') { yes.disabled = true; st.textContent = 'After ' + name; }
+    else { yes.disabled = true; st.textContent = 'Needs ' + name + ', which was ' + p.state + ': discard it'; }
+  }
+  function present(c, spec) {   // spec: { title, quote, note, yes, no, onShow } -> Promise<boolean>
+    var r = stack && stack.rows[c.id];
+    if (!r) return new Promise(function (resolve) {   // a single proposal: the full card
+      var card = el('div', { class: 'asst-msg asst-card', role: 'group', 'aria-label': 'Confirm' });
+      card.innerHTML = '<p class="asst-card-q">' + esc(spec.title) + '</p>' + (spec.quote ? '<blockquote>' + esc(spec.quote) + '</blockquote>' : '') + '<p class="asst-meta">' + esc(spec.note) + '</p>' +
+        '<div class="asst-card-actions"><button type="button" class="asst-btn asst-yes">' + esc(spec.yes) + '</button><button type="button" class="asst-btn asst-no">' + esc(spec.no || 'Cancel') + '</button></div>';
+      log.appendChild(card); log.scrollTop = log.scrollHeight; card.querySelector('.asst-yes').focus();
+      var done = function (ok) { card.remove(); resolve(ok); };
+      card.querySelector('.asst-yes').addEventListener('click', function () { done(true); });
+      card.querySelector('.asst-no').addEventListener('click', function () { done(false); });
+      busy && busy.signal.addEventListener('abort', function () { if (document.contains(card)) done(false); });
+    });
+    return new Promise(function (resolve) {
+      r.spec = spec; r.resolve = resolve;
+      var t = r.el.querySelector('.asst-stack-title'), d = r.el.querySelector('.asst-stack-detail');
+      t.textContent = spec.title;
+      d.innerHTML = (spec.quote ? '<blockquote>' + esc(spec.quote) + '</blockquote>' : '') + '<p class="asst-meta">' + esc(spec.note) + '</p>';
+      t.onclick = function () { var open2 = d.hidden; d.hidden = !open2; t.setAttribute('aria-expanded', String(open2)); if (open2 && spec.onShow) spec.onShow(); };
+      r.el.querySelector('.asst-yes').textContent = spec.yes === 'Save as proposal' ? 'Apply' : spec.yes.length > 12 ? 'Apply' : spec.yes;
+      r.el.querySelector('.asst-yes').onclick = function () { if (!this.disabled) { r.state = 'working'; r.el.querySelector('.asst-stack-state').textContent = 'Working…'; this.disabled = true; r.el.querySelector('.asst-no').disabled = true; regate(); resolve(true); } };
+      r.el.querySelector('.asst-no').onclick = function () { r.state = 'discarded'; r.el.querySelector('.asst-stack-state').textContent = 'Discarded'; this.disabled = true; r.el.querySelector('.asst-yes').disabled = true; regate(); resolve(false); };
+      busy && busy.signal.addEventListener('abort', function () { if (r.state === 'pending') r.el.querySelector('.asst-no').onclick.call(r.el.querySelector('.asst-no')); });
+      regate();   // this row is ready, and rows that name it now see its full title
+    });
+  }
+  function regate() { if (stack) Object.keys(stack.rows).forEach(function (id) { gate(stack.rows[id]); }); }
+  // after a proposal's own work: applied, or failed (its tool result says which)
+  function settleRow(c, res) {
+    var r = stack && stack.rows[c.id]; if (!r) return;
+    if (r.state === 'working') r.state = res.is_error ? 'failed' : 'applied';
+    else if (r.state === 'pending') r.state = res.is_error ? 'failed' : 'discarded';   // never shown (refused before its card)
+    r.el.classList.add('asst-stack-' + r.state);
+    r.el.querySelector('.asst-stack-state').textContent = { applied: 'Applied', failed: 'Failed', discarded: 'Discarded' }[r.state] || '';
+    r.el.querySelectorAll('button.asst-btn').forEach(function (b) { b.disabled = true; });
+    regate();
+  }
   function result(c, text, isError) { return { type: 'tool_result', tool_use_id: c.id, content: text, is_error: !!isError }; }
   function settle() { return new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(function () { setTimeout(r, 30); }); }); }); }
   function byText(t) {
@@ -631,17 +720,12 @@
     if (lastDiscarded && sameAs(change) === lastDiscarded) return Promise.resolve(result(c, 'not shown: this is exactly the change the person just discarded. Do not offer it again unchanged: say what would differ, or ask what they want changed. If their objection was the yellow outline, explain it is only the preview\'s marker.', true));
     return HubSite.validate(change).then(function (r) {
       if (!r.ok) return result(c, 'not valid against the live site:\n- ' + r.errors.join('\n- '), true);
-      var id = 'd' + c.id.replace(/[^\w]/g, '').slice(-12);
-      addShown('step', 'Showing the website with the change');
-      HubSite.preview(change, id);
-      return settle().then(function () { return new Promise(function (resolveCard) {
-        var card = el('div', { class: 'asst-msg asst-card', role: 'group', 'aria-label': 'Confirm' });
-        card.innerHTML = '<p class="asst-card-q">' + esc('Website change: ' + change.title) + '</p>' + (change.summary ? '<blockquote>' + esc(change.summary) + '</blockquote>' : '') +
-          '<p class="asst-meta">The page in the main column shows it; nothing is published until an admin approves it.</p>' +
-          '<div class="asst-card-actions"><button type="button" class="asst-btn asst-yes">Save as proposal</button><button type="button" class="asst-btn asst-no">Discard</button></div>';
-        log.appendChild(card); log.scrollTop = log.scrollHeight; card.querySelector('.asst-yes').focus();
-        function finish(ok) {
-          card.remove();
+      var id = 'd' + c.id.replace(/[^\w]/g, '').slice(-12), show = function () { HubSite.preview(change, id); };
+      if (!stack || !stack.shown) { addShown('step', 'Showing the website with the change'); show(); if (stack) stack.shown = true; }
+      return settle().then(function () {
+        return present(c, { title: 'Website change: ' + change.title, quote: change.summary, note: 'The page in the main column shows it' + (stack ? ' (click the title to show this one)' : '') + '; nothing is published until an admin approves it.', yes: 'Save as proposal', no: 'Discard', onShow: show });
+      }).then(function (ok) { return new Promise(function (resolveCard) {
+        (function finish(ok) {
           if (!ok) {
             HubSite.drop(id); lastDiscarded = sameAs(change); if (currentTurn) currentTurn.discarded = true;
             addShown('card', 'Website change: ' + change.title, { outcome: 'Discarded' }); return resolveCard(result(c, DISCARDED));
@@ -650,10 +734,7 @@
             addShown('card', 'Website change: ' + change.title, { outcome: 'Saved as a proposal; waiting for an admin to approve it' }); say('Saved as a proposal');
             resolveCard(result(c, 'saved as proposal ' + doc.id + '; it is NOT published: an admin approves it on Work › Tasks (#/work/tasks), which publishes it'));
           }, function (e) { HubSite.drop(id); addShown('card', 'Website change: ' + change.title, { outcome: 'Not saved: ' + e.message }); resolveCard(result(c, 'saving failed: ' + e.message, true)); });
-        }
-        card.querySelector('.asst-yes').addEventListener('click', function () { finish(true); });
-        card.querySelector('.asst-no').addEventListener('click', function () { finish(false); });
-        busy && busy.signal.addEventListener('abort', function () { if (document.contains(card)) finish(false); });
+        })(ok);
       }); });
     }, function (e) { return result(c, 'the live website copy could not be loaded: ' + e.message, true); });
   }
@@ -724,20 +805,10 @@
 
   /* a card for an action that costs or starts something: the person says yes or no; go() -> { shown, model } */
   function confirmCard(c, question, quote, note, yes, go) {
-    return new Promise(function (resolveCard) {
-      var card = el('div', { class: 'asst-msg asst-card', role: 'group', 'aria-label': 'Confirm' });
-      card.innerHTML = '<p class="asst-card-q">' + esc(question) + '</p>' + (quote ? '<blockquote>' + esc(quote) + '</blockquote>' : '') + '<p class="asst-meta">' + esc(note) + '</p>' +
-        '<div class="asst-card-actions"><button type="button" class="asst-btn asst-yes">' + esc(yes) + '</button><button type="button" class="asst-btn asst-no">Cancel</button></div>';
-      log.appendChild(card); log.scrollTop = log.scrollHeight; card.querySelector('.asst-yes').focus();
-      function finish(ok) {
-        card.remove();
-        if (!ok) { addShown('card', question, { outcome: 'Cancelled' }); return resolveCard(result(c, 'declined by the user; nothing was started')); }
-        go().then(function (r) { addShown('card', question, { outcome: r.shown }); say(r.shown); resolveCard(result(c, r.model)); },
-          function (e) { addShown('card', question, { outcome: 'Not started: ' + e.message }); resolveCard(result(c, 'failed: ' + e.message, true)); });
-      }
-      card.querySelector('.asst-yes').addEventListener('click', function () { finish(true); });
-      card.querySelector('.asst-no').addEventListener('click', function () { finish(false); });
-      busy && busy.signal.addEventListener('abort', function () { if (document.contains(card)) finish(false); });
+    return present(c, { title: question, quote: quote, note: note, yes: yes }).then(function (ok) {
+      if (!ok) { addShown('card', question, { outcome: 'Cancelled' }); return result(c, 'declined by the user; nothing was started'); }
+      return go().then(function (r) { addShown('card', question, { outcome: r.shown }); say(r.shown); return result(c, r.model); },
+        function (e) { addShown('card', question, { outcome: 'Not started: ' + e.message }); return result(c, 'failed: ' + e.message, true); });
     });
   }
 

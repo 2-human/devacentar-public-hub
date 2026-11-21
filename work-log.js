@@ -36,7 +36,7 @@
 
   /* the graph: tasks with the conversations they came from and the actions that did them */
   var CHANNEL = { 'hub-chat': 'Hub chat', 'claude-session': 'Claude session', 'coding-agent': 'Coding agent', pasted: 'Shared on purpose' };
-  var ACT = { commit: 'Commit', 'site-copy': 'Website copy', 'site-code': 'Website code', publish: 'Publish', deploy: 'Deploy', asset: 'Files', setting: 'Setting' };
+  var ACT = { commit: 'Commit', 'site-copy': 'Website copy', 'site-code': 'Website code', publish: 'Publish', deploy: 'Deploy', asset: 'Files', setting: 'Setting', 'agent-run': 'Coding agent run' };
   var REPO = 'https://github.com/2-human/devacentar-private/commit/';
   var kindOf = function (e) { return { 'site-change': 'action', session: 'conversation' }[e.kind] || e.kind; };
   var GOOD = ['approved', 'up', 'praise'], BAD = ['rejected', 'correction', 'problem', 'changes-requested', 'down', 'discarded', 'reverted'];
