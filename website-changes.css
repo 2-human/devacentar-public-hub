@@ -62,3 +62,9 @@
 .runbar-summary { flex-basis: 100%; font-size: 13px; opacity: .85; }
 .runbar-links { font-size: 12px; }
 .runbar[data-st="ready"] { border-color: #3f7d4a; } .runbar[data-st="failed"] { border-color: #b0413e; }
+
+.runbar-qa { font: inherit; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--hub-line); background: transparent; color: inherit; cursor: pointer; }
+.runbar-qa[data-qa="pass"] { border-color: #3f7d4a; color: #3f7d4a; } .runbar-qa[data-qa="fail"] { border-color: #b0413e; color: #b0413e; } .runbar-qa[data-qa="none"] { cursor: default; opacity: .7; }
+.runbar-qalist { flex-basis: 100%; margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+.runbar-qalist li { margin: 3px 0; } .runbar-qalist li[data-qa="fail"] strong { color: #b0413e; } .runbar-qalist li[data-qa="pass"] strong { color: #3f7d4a; }
+.runbar[data-st="qa-fail"] { border-color: #b0413e; }

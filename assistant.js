@@ -806,7 +806,7 @@
 
   /* a card for an action that costs or starts something: the person says yes or no; go() -> { shown, model } */
   /* a coding run, followed live in the chat (the same phases as the run bar on its page), ending with the preview */
-  var PHASE = { queued: 'Request received', editing: 'Editing files', building: 'Building the preview', publishing: 'Publishing' };
+  var PHASE = { queued: 'Request received', editing: 'Editing files', building: 'Building the preview', checking: 'QA check', publishing: 'Publishing' };
   function followRun(id, title) {
     var card = el('div', { class: 'asst-msg asst-run', role: 'status', 'aria-live': 'polite', 'data-run': id }), started = Date.now();
     log.appendChild(card); log.scrollTop = log.scrollHeight;
@@ -815,7 +815,9 @@
       if (!document.contains(card)) return document.removeEventListener('hub-site-changes', paint);
       var since = (pr && pr.startedAt) ? Date.parse(pr.startedAt) : started, sec = Math.max(0, Math.round((Date.now() - since) / 1000)), t = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
       var open = '<a class="asst-btn asst-sm" href="#/website/preview?c=' + esc(encodeURIComponent(id)) + '">';
-      if (st === 'proposed') { card.innerHTML = '<p><strong>✓ Preview ready:</strong> ' + esc(title) + '</p>' + (c.preview && c.preview.summary ? '<p class="asst-meta">' + esc(c.preview.summary) + '</p>' : '') + '<p>' + open + 'Show the preview</a></p>'; card.classList.add('asst-run-done'); return document.removeEventListener('hub-site-changes', paint); }
+      var qa = st === 'proposed' && c.preview && c.preview.qa;
+      if (st === 'proposed') { card.innerHTML = '<p><strong>✓ Preview ready:</strong> ' + esc(title) + '</p>' + (c.preview && c.preview.summary ? '<p class="asst-meta">' + esc(c.preview.summary) + '</p>' : '') +
+        (qa && qa.total ? '<p class="asst-meta">QA ' + qa.passed + '/' + qa.total + (qa.failed ? ': not done: ' + esc(qa.items.filter(function (i) { return i.status === 'fail'; }).map(function (i) { return i.requirement; }).join('; ')) : '') + '</p>' : '<p class="asst-meta">QA: not checked</p>') + '<p>' + open + 'Show the preview</a></p>'; card.classList.add('asst-run-done'); return document.removeEventListener('hub-site-changes', paint); }
       if (st === 'failed') { card.innerHTML = '<p><strong>✕ It did not work:</strong> ' + esc(title) + '</p>' + (c.error ? '<p class="asst-meta">' + esc(c.error) + '</p>' : '') + '<p>' + open + 'Open</a></p>'; card.classList.add('asst-run-done'); return document.removeEventListener('hub-site-changes', paint); }
       card.innerHTML = '<p><span class="runbar-dot" aria-hidden="true"></span> <strong>The coding agent is working:</strong> ' + esc(title) + '</p><p class="asst-meta">' + esc(PHASE[(pr && pr.phase) || 'queued'] || 'Working') + ' · ' + t + ' · ' + open + 'see it on the site</a></p>';
     }

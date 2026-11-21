@@ -14,7 +14,7 @@
   var SITE = HC.site || (LOCAL ? 'http://localhost:8786/' : 'https://centardeva.com/');
   // The frame is sandboxed with no origin of its own. Chrome stops such a frame from loading anything from localhost
   // (private network access), so on a local preview only it gets the hub's origin; the published hub keeps the strict one.
-  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=7659f1b987'; document.head.appendChild(css);
+  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=9fd04d0398'; document.head.appendChild(css);
 
   /* the requests are listed on Work › Tasks (views.js calls taskTable); #/website/changes stays for old links */
 
@@ -117,7 +117,7 @@
       var f = window.prompt('What should the coding agent change in this version?'); if (!f || !f.trim()) return;
       return revise(id, f.trim()).then(function () {}, function (e) { window.alert(e.message); });
     }
-    var q = { approve: 'Publish this change to centardeva.com now?', revert: 'Undo this change on centardeva.com?', discard: 'Discard this proposal?', retry: 'Try this change again? If the agent already made it, only the preview is rebuilt (no cost).' }[what];
+    var q = { approve: 'Publish this change to centardeva.com now?', revert: 'Undo this change on centardeva.com?', discard: 'Discard this proposal?', retry: 'Try this change again? If the agent already made it, only the preview is rebuilt (no cost).', check: 'Run the QA check on this preview? It checks the change against the whole request (a few cents, about two minutes); the agent is not run.' }[what];
     if (!window.confirm(q)) return;
     api('/changes/' + id + '/' + what, { method: 'POST', body: '{}' }).then(function () { H.say ? H.say('Done') : 0; return list(); }).then(redraw, function (e) { window.alert(e.message); });
   }
@@ -199,17 +199,17 @@
   var OUT = { revised: 'Revised', accepted: 'Accepted', discarded: 'Discarded', failed: 'Failed' };
   function runsTable(c) {
     var runs = c.runs || []; if (!runs.length) return '';
-    return '<details class="sitepv-brief" data-attempts' + (runs.length > 1 ? ' open' : '') + '><summary>Attempts (' + runs.length + ')</summary><table class="sitepv-list"><thead><tr><th scope="col">#</th><th scope="col">Step</th><th scope="col">Started by</th><th scope="col">Result</th><th scope="col">What came of it</th><th scope="col">Time</th><th scope="col">Cost</th><th scope="col">Model</th></tr></thead><tbody>' +
+    return '<details class="sitepv-brief" data-attempts' + (runs.length > 1 ? ' open' : '') + '><summary>Attempts (' + runs.length + ')</summary><table class="sitepv-list"><thead><tr><th scope="col">#</th><th scope="col">Step</th><th scope="col">Started by</th><th scope="col">Result</th><th scope="col">What came of it</th><th scope="col">QA</th><th scope="col">Time</th><th scope="col">Cost</th><th scope="col">Model</th></tr></thead><tbody>' +
       runs.map(function (r) {
         return '<tr><td>' + r.n + '</td><td>' + esc(STEP[r.action] || r.action) + (r.runUrl ? ' · <a href="' + esc(r.runUrl) + '" target="_blank" rel="noopener">run</a>' : '') + '</td><td>' + esc(r.why || '') + '</td><td>' + esc(RESULT[r.result] || r.result) + (r.summary ? '<br><span class="sitepv-note">' + esc(r.summary) + '</span>' : '') + (r.error ? '<br><span class="sitepv-error">' + esc(r.error) + '</span>' : '') +
-          '</td><td>' + ((r.outcomes || []).length ? r.outcomes.map(function (o) { return esc(OUT[o.type] || o.type) + (o.type === 'revised' && o.note ? '<br><span class="sitepv-note">' + esc(o.note) + '</span>' : ''); }).join(' → ') : esc(r.result === 'shown' ? 'On show' : '–')) + '</td><td>' + esc(r.seconds ? Math.round(r.seconds / 6) / 10 + ' min' : '–') + '</td><td>' + esc(r.cost ? '$' + r.cost.toFixed(2) : '–') + '</td><td>' + esc(r.model || '–') + '</td></tr>';
+          '</td><td>' + ((r.outcomes || []).length ? r.outcomes.map(function (o) { return esc(OUT[o.type] || o.type) + (o.type === 'revised' && o.note ? '<br><span class="sitepv-note">' + esc(o.note) + '</span>' : ''); }).join(' → ') : esc(r.result === 'shown' ? 'On show' : '–')) + '</td><td>' + esc(r.qa && r.qa.total ? r.qa.passed + '/' + r.qa.total + (r.qa.failed ? ' (' + r.qa.failed + ' not done)' : '') : '–') + '</td><td>' + esc(r.seconds ? Math.round(r.seconds / 6) / 10 + ' min' : '–') + '</td><td>' + esc(r.cost ? '$' + r.cost.toFixed(2) : '–') + '</td><td>' + esc(r.model || '–') + '</td></tr>';
       }).join('') + '</tbody></table></details>';
   }
   // the run bar (operator, 21 Nov 2026): one line above the site, so the site stays in view while the coding agent works.
   // Working: the phase from the run's jobs (changes.mjs progressOf), a clock, Discard, the attempts and the run. Ready:
   // what the agent did, how long, the cost, and Approve / Ask for changes / Discard. Failed: why, Try again / Discard.
-  var PHASES = { build: [['queued', 'Request'], ['editing', 'Editing files'], ['building', 'Building the preview'], ['ready', 'Ready']],
-    preview: [['queued', 'Request'], ['building', 'Building the preview'], ['ready', 'Ready']], publish: [['queued', 'Request'], ['publishing', 'Publishing'], ['ready', 'Live']] };
+  var PHASES = { build: [['queued', 'Request'], ['editing', 'Editing files'], ['building', 'Building the preview'], ['checking', 'QA check'], ['ready', 'Ready']],
+    preview: [['queued', 'Request'], ['building', 'Building the preview'], ['checking', 'QA check'], ['ready', 'Ready']], publish: [['queued', 'Request'], ['publishing', 'Publishing'], ['ready', 'Live']] };
   PHASES.revise = PHASES.build; PHASES.revert = PHASES.publish;
   var clock = function (iso) { var s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   setInterval(function () { document.querySelectorAll('[data-run-clock]').forEach(function (n) { n.textContent = clock(n.getAttribute('data-run-clock')); }); }, 1000);
@@ -223,15 +223,19 @@
     links += c.runUrl || (pr && pr.runUrl) ? ' · <a href="' + esc(c.runUrl || pr.runUrl) + '" target="_blank" rel="noopener">run ↗</a>' : '';
     if (/ing$/.test(c.status)) {
       var since = (pr && pr.startedAt) || (c.run && c.run.at) || new Date().toISOString();
-      var who = c.status === 'publishing' ? 'Publishing to centardeva.com' : c.status === 'reverting' ? 'Undoing it on centardeva.com' : (action === 'revise' ? 'The coding agent is revising it' : action === 'preview' ? 'Building the preview again' : 'The coding agent is working');
+      var qaBack = run && /^QA:/.test(run.why || '');
+      var who = c.status === 'publishing' ? 'Publishing to centardeva.com' : c.status === 'reverting' ? 'Undoing it on centardeva.com' : pr && pr.phase === 'checking' ? 'The QA check is looking at it' : qaBack ? 'QA sent it back: the coding agent is finishing it' : (action === 'revise' ? 'The coding agent is revising it' : action === 'preview' ? 'Building the preview again' : 'The coding agent is working');
       return '<div class="runbar" data-st="working" data-pick-pass><div class="runbar-main"><span class="runbar-dot" aria-hidden="true"></span><strong>' + esc(who) + '</strong> · <span data-run-clock="' + esc(since) + '">' + clock(since) + '</span>' + steps((pr && pr.phase) || 'queued') +
         '</div><div class="runbar-side">' + actions(c) + '<span class="runbar-links">' + links + '</span></div></div>';
     }
     if (c.status === 'proposed' && c.preview) {
       var t = run && run.seconds ? Math.floor(run.seconds / 60) + ':' + String(run.seconds % 60).padStart(2, '0') : '', cost = run && run.cost ? '$' + run.cost.toFixed(2) : c.cost ? '$' + c.cost.toFixed(2) : '';
-      return '<div class="runbar" data-st="ready" data-pick-pass><div class="runbar-main"><span class="runbar-ok" aria-hidden="true">✓</span><strong>Preview ready</strong>' + (t ? ' · ' + t : '') + (cost ? ' · ' + cost : '') +
+      var qa = (c.preview && c.preview.qa) || (run && run.qa), qaLine = !qa || !qa.total ? '<span class="runbar-qa" data-qa="none">QA: not checked</span>' + ((you.role === 'admin' || c.by === you.uid) ? ' <button type="button" class="runbar-qa" data-chg="check" data-id="' + esc(c.id) + '">Run QA check</button>' : '') :
+        '<button type="button" class="runbar-qa" data-qa="' + (qa.failed ? 'fail' : 'pass') + '" data-qa-toggle aria-expanded="false">QA ' + qa.passed + '/' + qa.total + (qa.failed ? ' · ' + qa.failed + ' not done' : qa.unclear ? ' · ' + qa.unclear + ' unclear' : '') + '</button>';
+      var qaList = qa && qa.total ? '<ul class="runbar-qalist" hidden>' + qa.items.map(function (i) { return '<li data-qa="' + esc(i.status) + '"><strong>' + esc({ pass: '✓', fail: '✕', unclear: '?' }[i.status] || '?') + ' ' + esc(i.requirement) + '</strong> — ' + esc(i.evidence) + '</li>'; }).join('') + '</ul>' : '';
+      return '<div class="runbar" data-st="' + (qa && qa.failed ? 'qa-fail' : 'ready') + '" data-pick-pass><div class="runbar-main"><span class="runbar-ok" aria-hidden="true">✓</span><strong>Preview ready</strong> · ' + qaLine + (t ? ' · ' + t : '') + (cost ? ' · ' + cost : '') +
         (c.preview.summary ? '<span class="runbar-summary">' + esc(c.preview.summary) + '</span>' : '') + (c.error ? '<span class="runbar-summary sitepv-error">' + esc(c.error) + '</span>' : '') +
-        '</div><div class="runbar-side">' + seg('Version', [['mode', 'before', 'Now'], ['mode', 'after', 'After']]) + actions(c) + '<span class="runbar-links">' + links + '</span></div></div>';
+        qaList + '</div><div class="runbar-side">' + seg('Version', [['mode', 'before', 'Now'], ['mode', 'after', 'After']]) + actions(c) + '<span class="runbar-links">' + links + '</span></div></div>';
     }
     if (c.status === 'failed') return '<div class="runbar" data-st="failed" data-pick-pass><div class="runbar-main"><span class="runbar-bad" aria-hidden="true">✕</span><strong>It did not work</strong>' + (c.error ? '<span class="runbar-summary">' + esc(c.error) + '</span>' : '') + '</div><div class="runbar-side">' + actions(c) + '<span class="runbar-links">' + links + '</span></div></div>';
     return '';
@@ -293,6 +297,8 @@
   /* ─── wiring ─── */
   H.onRender(fill);
   document.addEventListener('click', function (e) {
+    var qt = e.target.closest && e.target.closest('#app-main [data-qa-toggle]');
+    if (qt) { var ql = document.querySelector('#app-main .runbar-qalist'); if (ql) { ql.hidden = !ql.hidden; qt.setAttribute('aria-expanded', String(!ql.hidden)); } return; }
     var at = e.target.closest && e.target.closest('#app-main [data-run-attempts]');
     if (at) { e.preventDefault(); var d = document.querySelector('#app-main details[data-attempts]'); if (d) { d.open = true; d.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } return; }
     var b = e.target.closest && e.target.closest('#app-main [data-pv], #app-main [data-chg]'); if (!b) return;
