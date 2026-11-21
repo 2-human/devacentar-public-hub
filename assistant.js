@@ -284,8 +284,11 @@
     var ctl = new AbortController(); busy = ctl; panel.setAttribute('aria-busy', 'true'); q('.asst-send').disabled = true;
     var rounds = 0, tid = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     var turnInfo = { id: tid, prevId: lastTurn, pin: q('.asst-model-pick').value || null, toolErrors: 0 };
-    lastTurn = tid; ls.set('lastTurn', tid);
-    function done() { busy = null; panel.removeAttribute('aria-busy'); q('.asst-send').disabled = false; }
+    lastTurn = tid; ls.set('lastTurn', tid); currentTurn = turnInfo;
+    function done() {
+      // a proposal discarded in this turn: a soft signal for the router (half a failure); a 👍/👎 later replaces it
+      if (turnInfo.discarded) authed().then(function (h) { return fetch(base + '/feedback', { method: 'POST', headers: h, body: JSON.stringify({ id: tid, signal: 'discarded' }) }); }).catch(function () {});
+      busy = null; panel.removeAttribute('aria-busy'); q('.asst-send').disabled = false; }
     function turn() {
       var bubble = null, acc = '';
       return stream(ctl.signal, turnInfo, function (delta) {
@@ -532,7 +535,15 @@
   }
 
   /* a website change: checked against the live copy, shown on the real page in the main column, then saved or discarded */
+  // what was discarded last (edits and social links), so the same proposal is not offered again unchanged
+  var lastDiscarded = null, currentTurn = null;
+  var sameAs = function (change) { return JSON.stringify({ edits: change.edits || null, social: change.social || null }); };
+  var DISCARDED = 'discarded by the person: nothing was saved, the preview is closed and the main column is back where they were. ' +
+    'A discard means they did not get what they wanted, or are still exploring and needed to see it to decide. Do not propose the same change again unchanged: ' +
+    'if they said what was wrong, change exactly that; if not, ask in one short question what they want different. ' +
+    'If they mention a yellow frame, box or outline: that is only the preview\'s marker of what changes (shown with Mark changes), never on the site; Clean view shows the page exactly as it will look. Say so plainly and do not change the text for it.';
   function proposeSite(c, change, lang) {
+    if (lastDiscarded && sameAs(change) === lastDiscarded) return Promise.resolve(result(c, 'not shown: this is exactly the change the person just discarded. Do not offer it again unchanged: say what would differ, or ask what they want changed. If their objection was the yellow outline, explain it is only the preview\'s marker.', true));
     return HubSite.validate(change).then(function (r) {
       if (!r.ok) return result(c, 'not valid against the live site:\n- ' + r.errors.join('\n- '), true);
       var id = 'd' + c.id.replace(/[^\w]/g, '').slice(-12);
@@ -546,7 +557,10 @@
         log.appendChild(card); log.scrollTop = log.scrollHeight; card.querySelector('.asst-yes').focus();
         function finish(ok) {
           card.remove();
-          if (!ok) { HubSite.drop(id); addShown('card', 'Website change: ' + change.title, { outcome: 'Discarded' }); return resolveCard(result(c, 'discarded by the user; nothing was saved')); }
+          if (!ok) {
+            HubSite.drop(id); lastDiscarded = sameAs(change); if (currentTurn) currentTurn.discarded = true;
+            addShown('card', 'Website change: ' + change.title, { outcome: 'Discarded' }); return resolveCard(result(c, DISCARDED));
+          }
           HubSite.save(change, id).then(function (doc) {
             addShown('card', 'Website change: ' + change.title, { outcome: 'Saved as a proposal; waiting for an admin to approve it' }); say('Saved as a proposal');
             resolveCard(result(c, 'saved as proposal ' + doc.id + '; it is NOT published: an admin approves it on Work › Tasks (#/work/tasks), which publishes it'));

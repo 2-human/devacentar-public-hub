@@ -1,7 +1,7 @@
 /* Website changes in the Centar DEVA hub (tasks/todo.md, "makes website changes"). Loaded by hub.config.js `after`.
  *
  *   #/website/preview?c=<id>   the real page with a change applied, in the main column: Before / After, Serbian /
- *                              English, Desktop / Phone, the changed text outlined; the list of what changes above it.
+ *                              English, Desktop / Phone, Clean view (default) / Mark changes; the list of what changes above it.
  *   #/website/changes          every change request: status, who, when; Approve (publishes) / Discard / Revert.
  *
  * The page is drawn by the site's own code (render.js + document.js from the site, the same files the build uses) from
@@ -51,7 +51,14 @@
   var drafts = {}, saved = null, you = { role: '' }, publishing = false, poll = null, err = '';
   try { sessionStorage.removeItem('devacentar-hub:site-drafts'); } catch (e) {}
   var keepDrafts = function () {};
-  function drop(id) { if (drafts[id]) { delete drafts[id]; redraw(); } }
+  // Discard: the draft goes, and so does its preview: back to the screen the person was on before it opened (the live
+  // site if they came straight from the chat), never an empty preview page
+  var returnTo = null;
+  function drop(id) {
+    if (!drafts[id]) return;
+    delete drafts[id];
+    if (location.hash.indexOf('c=' + encodeURIComponent(id)) > 0) { var to = returnTo || '#/staging'; returnTo = null; location.hash = to; } else redraw();
+  }
   function api(path, init) {
     if (!window.HubAssistant || !window.HubAssistant.api) return Promise.reject(new Error('the assistant is not available here'));
     return window.HubAssistant.api(path, init).then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.error || 'the server answered ' + r.status); return j; }); });
@@ -68,7 +75,11 @@
   function redraw() { var p = location.hash.slice(1); if (p.indexOf('/website/changes') === 0 || p.indexOf('/website/preview') === 0 || p.indexOf('/work/tasks') === 0) H.render({ drawer: false }); }
   function find(id) { return drafts[id] ? { id: id, draft: true, status: 'draft', change: drafts[id] } : (saved || []).filter(function (c) { return c.id === id; })[0]; }
   function validate(change) { return site().then(function (s) { return s.C.validate(s.dict, change); }); }
-  function preview(change, id) { drafts[id] = change; keepDrafts(); location.hash = '#/website/preview?c=' + encodeURIComponent(id); }
+  function preview(change, id) {
+    drafts[id] = change; keepDrafts();
+    if (location.hash.indexOf('#/website/preview') !== 0) returnTo = location.hash || null;   // where Discard goes back to
+    location.hash = '#/website/preview?c=' + encodeURIComponent(id);
+  }
   function save(change, draftId) {
     return api('/changes', { method: 'POST', body: JSON.stringify({ change: change }) }).then(function (doc) {
       if (draftId) { delete drafts[draftId]; keepDrafts(); }
@@ -100,14 +111,16 @@
   }
 
   /* ─── the preview ─── */
-  var view = { lang: 'sr', mode: 'after', width: 'desktop', marks: 'on' };
+  // the preview opens clean, exactly as the page will look (operator, 21 Nov 2026: a design can't be reviewed with a marker on
+  // it); "Mark changes" outlines the changed text when wanted, and the choice is kept for the session
+  var view = { lang: 'sr', mode: 'after', width: 'desktop', marks: (function () { try { return sessionStorage.getItem('devacentar-hub:pv-marks') === 'on' ? 'on' : 'off'; } catch (e) { return 'off'; } })() };
   var STATUS = { draft: 'Not saved yet', building: 'The coding agent is working…', proposed: 'Waiting for approval', publishing: 'Publishing…', published: 'Live', failed: 'Failed', reverting: 'Undoing…', reverted: 'Undone', discarded: 'Discarded' };
   function highlight(o) {   // runs inside the preview frame
     var norm = function (s) { return String(s).replace(/\s+/g, ' ').trim(); }, hits = [];
     var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     while (walker.nextNode()) { var t = norm(walker.currentNode.nodeValue); if (t && o.marks.indexOf(t) >= 0 && hits.indexOf(walker.currentNode.parentElement) < 0) hits.push(walker.currentNode.parentElement); }
     if (o.social) { var s = document.querySelector(o.after ? '.deva-social' : '.deva-contact'); if (s) hits.push(s); }
-    hits.forEach(function (h) { h.classList.add('deva-changed'); });
+    hits.forEach(function (h) { h.classList.add('deva-changed'); if (getComputedStyle(h).position === 'static') h.style.position = 'relative'; });   // the tag sits on it
     if (hits[0]) setTimeout(function () { hits[0].scrollIntoView({ block: 'center' }); }, 60);
   }
   function srcdoc(s, change) {
@@ -115,7 +128,7 @@
     var diff = s.C.diff(s.dict, change), lang = view.lang;
     var marks = view.marks === 'off' ? [] : diff.filter(function (x) { return x.lang === lang; }).map(function (x) { return String(after ? x.after : x.before).replace(/\s+/g, ' ').trim(); });
     var add = '<base href="' + SITE + (lang === 'sr' ? 'rs' : 'en') + '/" target="_blank">';
-    var hl = '<style>.deva-changed{outline:3px solid #E0A84A!important;outline-offset:6px;border-radius:2px}</style><script>(' + highlight.toString() + ')(' + JSON.stringify({ marks: marks, social: view.marks !== 'off' && diff.some(function (x) { return !x.lang; }), after: after }).replace(/</g, '\\u003c') + ');<\/script>';
+    var hl = '<style>.deva-changed{outline:2px dashed #E0A84A!important;outline-offset:6px}.deva-changed::after{content:\'preview: changes here\';position:absolute;left:-6px;top:calc(-6px - 1.9em);font:600 10px/1.6 system-ui,sans-serif;letter-spacing:.04em;text-transform:none;color:#2D2824;background:#E0A84A;padding:0 6px;border-radius:3px;white-space:nowrap;pointer-events:none;z-index:5}</style><script>(' + highlight.toString() + ')(' + JSON.stringify({ marks: marks, social: view.marks !== 'off' && diff.some(function (x) { return !x.lang; }), after: after }).replace(/</g, '\\u003c') + ');<\/script>';
     return s.doc.html(d, lang, 'home').replace('<head>', '<head>' + add).replace('</body>', hl + '</body>');
   }
   function fill() {
@@ -183,6 +196,7 @@
 
   H.route('/website/preview', function (rest, query) {
     var id = (query && query.c) || '', c = find(id); ensure();
+    if (!c && /^d/.test(id)) return '<h1>Website change</h1><p class="empty">This proposal was discarded, so nothing changed on the site. Ask the assistant for a new one.</p><p><a class="btn" href="#/staging">See the live site</a> <a class="btn" href="#/website/changes">All website changes</a></p>';
     if (!c) { return '<h1>Website change</h1><p class="empty">' + esc(saved ? 'There is no change ' + id + '.' : err || 'Loading…') + '</p>'; }
     if (c.lane === 'code') return codePage(c);
     if (FINISHED.indexOf(c.status) >= 0) return '<h1>' + esc(c.change.title) + '</h1><p class="sitepv-status"><span class="sitepv-badge" data-st="' + esc(c.status) + '">' + esc(STATUS[c.status] || c.status) + '</span> Copy / links change' + (c.byEmail ? ' · asked by ' + esc(c.byEmail) : '') + (c.commitUrl ? ' · <a href="' + esc(c.commitUrl) + '" target="_blank" rel="noopener">the commit</a>' : '') + '</p>' + actions(c) + recordBlock(c);
@@ -197,8 +211,8 @@
         return '<tr><td><code>' + esc(r.path) + '</code></td><td>' + esc(r.lang ? (r.lang === 'sr' ? 'Serbian' : 'English') : 'both') + '</td><td>' + esc(r.before == null ? '–' : r.before) + '</td><td>' + esc(r.after) + '</td></tr>';
       }).join('') + '</tbody></table>' : '') +
       actions(c) +
-      '<div class="sitepv-bar" data-pick-pass>' + seg('Version', [['mode', 'before', 'Now'], ['mode', 'after', 'After the change']]) + seg('Language', [['lang', 'sr', 'Serbian'], ['lang', 'en', 'English']]) + seg('Width', [['width', 'desktop', 'Desktop'], ['width', 'phone', 'Phone']]) + seg('Outline', [['marks', 'on', 'Outline changes'], ['marks', 'off', 'Hide outline']]) + '</div>' +
-      '<p class="sitepv-note sitepv-outline-note">' + (view.marks === 'off' ? 'Outline hidden: this is exactly how the page will look.' : 'Outlined in yellow: what changes. The outline is only in this preview, never on the site.') + '</p>' +
+      '<div class="sitepv-bar" data-pick-pass>' + seg('Version', [['mode', 'before', 'Now'], ['mode', 'after', 'After the change']]) + seg('Language', [['lang', 'sr', 'Serbian'], ['lang', 'en', 'English']]) + seg('Width', [['width', 'desktop', 'Desktop'], ['width', 'phone', 'Phone']]) + seg('Outline', [['marks', 'off', 'Clean view'], ['marks', 'on', 'Mark changes']]) + '</div>' +
+      '<p class="sitepv-note sitepv-outline-note">' + (view.marks === 'off' ? 'Exactly how the page will look. The table above lists what changes; Mark changes outlines it on the page.' : 'The dashed yellow outline marks what changes. It is only in this preview, never on the site: Clean view shows the page exactly as it will look.') + '</p>' +
       '<div class="sitepv-stage" data-w="' + view.width + '"><iframe class="sitepv-frame" data-sitepv="' + esc(c.id) + '" title="' + esc('Preview: ' + c.change.title + ' (' + (view.mode === 'after' ? 'after the change' : 'now') + ', ' + (view.lang === 'sr' ? 'Serbian' : 'English') + ')') + '" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox' + (LOCAL ? ' allow-same-origin' : '') + '"></iframe></div>';
   });
 
@@ -222,6 +236,7 @@
     var b = e.target.closest && e.target.closest('#app-main [data-pv], #app-main [data-chg]'); if (!b) return;
     if (b.hasAttribute('data-chg')) return act(b.getAttribute('data-id'), b.getAttribute('data-chg'));
     view[b.getAttribute('data-pv')] = b.getAttribute('data-pv-v');
+    if (b.getAttribute('data-pv') === 'marks') try { sessionStorage.setItem('devacentar-hub:pv-marks', view.marks); } catch (e) {}
     var keep = b.getAttribute('data-pv') + b.getAttribute('data-pv-v');
     H.render({ drawer: false });
     var again = document.querySelector('#app-main [data-pv="' + keep.replace(/(before|after|sr|en|desktop|phone|on|off)$/, '') + '"][data-pv-v="' + b.getAttribute('data-pv-v') + '"]'); if (again) again.focus();
