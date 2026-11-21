@@ -256,7 +256,7 @@
     }).join('') + '</tbody></table>';
   }
 
-  window.HubSite = { site: site, copy: copy, validate: validate, preview: preview, save: save, drop: drop, list: list, request: request, revise: revise, taskTable: taskTable };
+  window.HubSite = { base: SITE, local: LOCAL, site: site, copy: copy, validate: validate, preview: preview, save: save, drop: drop, list: list, request: request, revise: revise, taskTable: taskTable };
   // this file loads after the hub's first paint: a link straight to one of these pages was drawn by the /website route
   redraw();
 })();

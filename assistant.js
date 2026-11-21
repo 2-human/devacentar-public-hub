@@ -86,13 +86,13 @@
     document.body.appendChild(panel); document.body.appendChild(hoverBox); document.body.appendChild(focusBox);
     panel.hidden = false; document.documentElement.classList.add('asst-open');
     fab.setAttribute('aria-expanded', 'true'); fab.hidden = true;
-    setPick(true); redrawLog(); countNotes(); loadModels();
+    setPick(true); redrawLog(); countNotes(); loadModels(); greetFrames();
     window.addEventListener('mouseover', onOver, true); window.addEventListener('click', onClick, true);
     window.addEventListener('keydown', onKey, true); window.addEventListener('scroll', place, true); window.addEventListener('resize', place);
     input.focus();
   }
   function closePanel() {
-    if (!open) return; open = false;
+    if (!open) return; open = false; tellFrames('hub-pick:off');
     if (busy) busy.abort();
     window.removeEventListener('mouseover', onOver, true); window.removeEventListener('click', onClick, true);
     window.removeEventListener('keydown', onKey, true); window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place);
@@ -112,7 +112,52 @@
   function setPick(on) {
     pick = on; pickBtn.setAttribute('aria-pressed', String(on));
     document.documentElement.classList.toggle('asst-picking', on);
+    tellFrames(on && open ? 'hub-pick:on' : 'hub-pick:off');
     if (!on) { hoverEl = null; place(); }
+  }
+
+  /* ─── embedded pages: the pick protocol (public/website/assets/pick-agent.js) ───
+   * Pick works the same in every page the hub shows in a frame (the live site, website-change previews, the brand
+   * guidelines): each frame is greeted; a page that answers runs Pick inside itself and reports what is under the pointer
+   * and what was picked (its text and heading); the outlines are drawn here, at the frame's place and scale. A frame that
+   * never answers (another site, the map) is picked whole and says so. A new screen with a frame needs nothing more: the
+   * page it shows loads the agent (the website's site.js does; a copy the hub builds adds it), and the pick-coverage
+   * test checks every screen. */
+  var agents = new Map();   // frame element -> true once its page answered
+  var frames = function () { return [].slice.call(document.querySelectorAll('#app-main iframe, #app-drawer iframe')); };
+  function greet(f) { try { if (f.contentWindow) f.contentWindow.postMessage({ type: 'hub-pick:hello', on: !!(open && pick) }, '*'); } catch (e) {} }
+  function greetFrames() {
+    frames().forEach(function (f) {
+      if (!f.__asstPick) { f.__asstPick = 1; f.addEventListener('load', function () { agents.delete(f); f.removeAttribute('data-pick-agent'); greet(f); setTimeout(function () { greet(f); }, 600); }); }
+      if (!agents.has(f)) greet(f);
+    });
+  }
+  function tellFrames(type) { if (!agents) return; agents.forEach(function (x, f) { try { if (f.isConnected && f.contentWindow) f.contentWindow.postMessage({ type: type }, '*'); } catch (e) {} }); }
+  window.addEventListener('message', function (e) {
+    var m = e.data; if (!m || typeof m.type !== 'string' || m.type.indexOf('hub-pick:') !== 0) return;
+    var f = frames().filter(function (x) { return x.contentWindow === e.source; })[0]; if (!f) return;   // only frames on this screen
+    if (m.type === 'hub-pick:ready') {
+      agents.set(f, true); f.setAttribute('data-pick-agent', '');
+      if (f.hasAttribute('data-fit-height') && m.height > 0) f.style.height = Math.ceil(m.height) + 'px';
+      return;
+    }
+    if (!agents.has(f) || !open) return;
+    if (m.type === 'hub-pick:hover') { hoverEl = m.rect ? { frame: f, rect: m.rect } : null; place(); }
+    else if (m.type === 'hub-pick:focus' && m.info) { setFocus({ frame: f, rect: m.rect }, false, m.info); input.focus({ preventScroll: true }); }
+    else if (m.type === 'hub-pick:rects') { if (hoverEl && hoverEl.frame === f) hoverEl.rect = m.hover; if (focusEl && focusEl.frame === f) focusEl.rect = m.focus; place(); }
+    else if (m.type === 'hub-pick:key' && m.key === 'Escape') { if (focusEl) setFocus(null); else closePanel(); }
+  });
+  // an element inside a frame, in this page's coordinates: the frame's place plus the element's, times the frame's scale,
+  // clipped to the frame
+  function rectFor(node) {
+    if (node && node.frame) {
+      var f = node.frame, r = node.rect; if (!f.isConnected || !r) return null;
+      var fr = f.getBoundingClientRect(), s = f.offsetWidth ? fr.width / f.offsetWidth : 1;
+      var left = fr.left + (f.clientLeft + r.left) * s, top = fr.top + (f.clientTop + r.top) * s;
+      var L = Math.max(left, fr.left), T = Math.max(top, fr.top), R = Math.min(left + r.width * s, fr.right), B = Math.min(top + r.height * s, fr.bottom);
+      return R > L && B > T ? { left: L, top: T, width: R - L, height: B - T } : null;
+    }
+    return node && document.contains(node) ? node.getBoundingClientRect() : null;
   }
 
   /* ─── pick: hover outline, click or Enter focuses (only in Pick does a click lose its own action) ─── */
@@ -125,7 +170,7 @@
     if (!c || !root.contains(c) || c === root) c = t;
     return c === root ? null : c;
   }
-  function onOver(e) { if (!pick || passes(e.target)) return; var p = pickable(e.target); if (p !== hoverEl) { hoverEl = p; place(); } }
+  function onOver(e) { if (!pick || passes(e.target) || (e.target.tagName === 'IFRAME' && agents.has(e.target))) return; var p = pickable(e.target); if (p !== hoverEl) { hoverEl = p; place(); } }
   function onClick(e) {
     if (!pick || ours(e.target) || passes(e.target)) return;
     var p = pickable(e.target); if (!p) return;
@@ -148,22 +193,24 @@
       setFocus(p); input.focus({ preventScroll: true });
     }
   }
-  function setFocus(node, quiet) {
+  function setFocus(node, quiet, info) {   // node: an element, or { frame, rect } with info from the frame's page
+    if (focusEl && focusEl.frame && focusEl !== node) tellFrames('hub-pick:clear');
     focusEl = node || null;
-    focusInfo = node ? describe(node) : null;
+    focusInfo = !node ? null : node.frame ? { ref: null, tag: info.tag, where: 'embedded page "' + (node.frame.getAttribute('title') || 'page') + '"', heading: info.heading || '', text: info.text || '', label: info.label || info.tag } : describe(node);
     chip.hidden = !node; q('.asst-chip-v').textContent = node ? focusInfo.label : '';
     if (node && !quiet) say('Focused on ' + focusInfo.label);
     place();
   }
   function box(b, node) {
-    if (!node || !document.contains(node)) { b.style.display = 'none'; return; }
-    var r = node.getBoundingClientRect(); if (!r.width && !r.height) { b.style.display = 'none'; return; }
+    var r = rectFor(node); if (!r || (!r.width && !r.height)) { b.style.display = 'none'; return; }
     b.style.display = 'block'; b.style.left = r.left - 3 + 'px'; b.style.top = r.top - 3 + 'px'; b.style.width = r.width + 6 + 'px'; b.style.height = r.height + 6 + 'px';
   }
   var placing = 0;
   function place() { if (placing) return; placing = requestAnimationFrame(function () { placing = 0; box(hoverBox, pick && hoverEl !== focusEl ? hoverEl : null); box(focusBox, focusEl); }); }
   /* a redraw replaces the screen's nodes: find the focused element again by its item reference or its text */
   function refind() {
+    greetFrames();
+    if (focusEl && focusEl.frame) { if (!focusEl.frame.isConnected) setFocus(null, true); return place(); }
     if (!focusEl || document.contains(focusEl) || !focusInfo) return place();
     var n = (focusInfo.ref && document.querySelector('[data-d="' + CSS.escape(focusInfo.ref) + '"]')) || byText(focusInfo.text.slice(0, 80));
     if (n) { focusEl = n; } else setFocus(null, true);
@@ -180,7 +227,7 @@
   }
   function describe(node) {
     var refEl = node.closest('[data-d]'), ref = refEl ? refEl.getAttribute('data-d') : null;
-    var text = node.tagName === 'IMG' ? 'image: ' + (node.getAttribute('alt') || '') + ' (' + (node.currentSrc || node.src).split('/').pop() + ')' : clean(node.innerText || node.textContent, TEXT_CAP);
+    var text = node.tagName === 'IFRAME' ? 'embedded page "' + (node.getAttribute('title') || node.src || 'page') + '" (its contents cannot be picked: it is another site)' : node.tagName === 'IMG' ? 'image: ' + (node.getAttribute('alt') || '') + ' (' + (node.currentSrc || node.src).split('/').pop() + ')' : clean(node.innerText || node.textContent, TEXT_CAP);
     var where = node.closest('#app-drawer') ? 'drawer' : node.closest('#app-nav') ? 'menu' : node.closest('#app-bar') ? 'top bar' : 'screen';
     var head = headingBefore(node), first = clean(text, 60);
     return { ref: ref, tag: node.tagName.toLowerCase(), where: where, heading: head, text: text, label: (head && head !== first ? head + ' › ' : '') + (first || node.tagName.toLowerCase()) };
@@ -243,7 +290,7 @@
   }
   function redrawLog() {
     log.innerHTML = '';
-    if (!shown.length) { var e = el('div', { class: 'asst-msg asst-hint' }); e.innerHTML = '<p>Ask about this page. With <strong>Pick</strong> on, click anything to focus the chat on it; turn Pick off to use the hub normally.</p><p>Each answer comes from the cheapest model that has proven good at that kind of question (free local models first); 👍 / 👎 teach it.</p>'; log.appendChild(e); }
+    if (!shown.length) { var e = el('div', { class: 'asst-msg asst-hint' }); e.innerHTML = '<p>Ask about this page. With <strong>Pick</strong> on, click anything to focus the chat on it; turn Pick off to use the hub normally.</p><p>Each answer comes from the cheapest model that has proven good at that kind of question; 👍 / 👎 teach it.</p><p class="asst-notice">What you ask, and what is on this page, goes to the model that answers. On this hub that is Anthropic\'s Claude only, under its commercial terms (not used for training). Leave out anything private that is not already in the hub.</p>'; log.appendChild(e); }
     shown.forEach(function (m) { log.appendChild(row(m)); });
     log.scrollTop = log.scrollHeight;
   }
@@ -364,7 +411,7 @@
       if (!rep) { box.querySelector('.asst-models-body').innerHTML = '<p class="asst-meta">' + esc(UNREACHABLE) + '</p>'; return; }
       var label = {}; rep.models.forEach(function (m) { label[m.id] = m.label + (m.free ? ' (free)' : ''); });
       var html = '<p class="asst-meta">Available, cheapest first: ' + rep.models.map(function (m) { return esc(label[m.id]); }).join(' → ') + '</p>';
-      if (rep.dailyCap) html += '<p class="asst-meta">Paid models today: ' + esc(money(rep.spentToday) === 'free' ? '$0' : money(rep.spentToday)) + ' of the $' + esc(rep.dailyCap) + ' daily budget; past it, free models only.</p>';
+      if (rep.dailyCap) html += '<p class="asst-meta">Paid models today: ' + esc(money(rep.spentToday) === 'free' ? '$0' : money(rep.spentToday)) + ' of the $' + esc(rep.dailyCap) + ' daily budget.</p>';
       if (!rep.tasks.length) html += '<p class="asst-meta">Nothing learned yet: every answer and every 👍 / 👎 adds to this.</p>';
       rep.tasks.forEach(function (t) {
         var parts = t.key.split('|');
@@ -587,15 +634,17 @@
     var STATE = { draft: 'not saved (still in the chat)', building: 'the coding agent is working on it', proposed: 'waiting for an admin to approve', publishing: 'approved, being published', published: 'LIVE on centardeva.com', failed: 'failed', reverting: 'being undone', reverted: 'undone (no longer on the site)', discarded: 'discarded' };
     var day = function (iso) { return iso ? new Date(iso).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : ''; };
     var project = ((window.HUB_DATA || {}).next || []).map(function (n) { return '- step:' + n.id + ' · ' + n.title + ' · ' + n.status + ' · with ' + n.owner; });
+    // people as roles, never emails: this text goes to the model
+    function roleName(r) { return r === 'admin' ? 'an admin' : r === 'team' ? 'a team member' : 'a hub member'; }
     return Promise.all([
       window.HubTasks ? HubTasks.list().catch(function (e) { return { error: e.message }; }) : Promise.resolve([]),
       window.HubSite ? HubSite.list().catch(function (e) { return { error: e.message }; }) : Promise.resolve([])
     ]).then(function (r) {
       var tasks = r[0], changes = r[1];
-      var hub = tasks.error ? ['- (could not be read: ' + tasks.error + ')'] : tasks.map(function (t) { return '- task:' + t.id + ' · ' + t.title + ' · ' + t.status + ' · with ' + t.owner + ' · added ' + day(t.at) + (t.byEmail ? ' by ' + t.byEmail : ''); });
+      var hub = tasks.error ? ['- (could not be read: ' + tasks.error + ')'] : tasks.map(function (t) { return '- task:' + t.id + ' · ' + t.title + ' · ' + t.status + ' · with ' + t.owner + ' · added ' + day(t.at) + (t.byRole ? ' by ' + roleName(t.byRole) : ''); });
       var site = changes.error ? ['- (could not be read: ' + changes.error + ')'] : changes.map(function (c) {
         return '- change ' + c.id + ' · ' + c.change.title + ' · ' + (c.lane === 'code' ? 'layout / code' : 'copy / links') + ' · ' + (STATE[c.status] || c.status) +
-          ' · asked ' + day(c.at) + (c.byEmail ? ' by ' + c.byEmail : '') + (c.approvedBy ? ' · approved by ' + c.approvedBy : '') + (c.commit ? ' · commit ' + c.commit.slice(0, 7) : '') +
+          ' · asked ' + day(c.at) + (c.byRole ? ' by ' + roleName(c.byRole) : '') + (c.approvedBy ? ' · approved' : '') + (c.commit ? ' · commit ' + c.commit.slice(0, 7) : '') +
           (c.status === 'published' || c.status === 'reverted' ? ' · ' + c.status + ' ' + day(c.updated) : '') + (c.error ? ' · error: ' + c.error : '');
       });
       return 'Project tasks (set in the project; change them only with a note):\n' + (project.join('\n') || '- none') +
@@ -685,7 +734,9 @@
     });
   }
 
-  window.HubAssistant = { open: openPanel, close: closePanel, focus: function (n) { setFocus(n); }, state: function () { return { open: open, pick: pick, focus: focusInfo, busy: !!busy }; },
+  // what Pick can reach on this screen (the pick-coverage test): every frame and whether its page answered
+  function coverage() { return { frames: frames().map(function (f) { return { title: f.getAttribute('title') || '', src: (f.getAttribute('src') || (f.hasAttribute('srcdoc') ? 'srcdoc' : '')).slice(0, 80), agent: agents.has(f) }; }) }; }
+  window.HubAssistant = { coverage: coverage, open: openPanel, close: closePanel, focus: function (n) { setFocus(n); }, state: function () { return { open: open, pick: pick, focus: focusInfo, busy: !!busy }; },
     /* the server, as the signed-in member (website-changes.js uses it) */
     api: function (path, init) { return authed().then(function (h) { return fetch(base + path, Object.assign({}, init || {}, { headers: h })); }); } };
 })();
