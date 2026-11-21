@@ -68,3 +68,12 @@
 .runbar-qalist { flex-basis: 100%; margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
 .runbar-qalist li { margin: 3px 0; } .runbar-qalist li[data-qa="fail"] strong { color: #b0413e; } .runbar-qalist li[data-qa="pass"] strong { color: #3f7d4a; }
 .runbar[data-st="qa-fail"] { border-color: #b0413e; }
+
+/* Work › Costs: the form to enter a cost by hand */
+.costs-form { display: grid; gap: 8px; max-width: 620px; }
+.costs-form label { display: grid; gap: 4px; font-size: 13px; }
+.costs-form label input, .costs-form label select { font: inherit; padding: 6px 8px; border: 1px solid var(--hub-line); border-radius: 6px; background: var(--hub-card); color: inherit; }
+.costs-tiles { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.costs-tile { flex: 1 1 160px; padding: 12px 14px; border: 1px solid var(--hub-line); border-radius: 8px; background: var(--hub-card); }
+.costs-tile span { display: block; font-size: 12px; opacity: .7; }
+.costs-tile b { display: block; font-size: 22px; margin-top: 4px; font-variant-numeric: tabular-nums; }

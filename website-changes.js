@@ -14,7 +14,7 @@
   var SITE = HC.site || (LOCAL ? 'http://localhost:8786/' : 'https://centardeva.com/');
   // The frame is sandboxed with no origin of its own. Chrome stops such a frame from loading anything from localhost
   // (private network access), so on a local preview only it gets the hub's origin; the published hub keeps the strict one.
-  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=9fd04d0398'; document.head.appendChild(css);
+  var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'website-changes.css?v=b902d1b0b5'; document.head.appendChild(css);
 
   /* the requests are listed on Work › Tasks (views.js calls taskTable); #/website/changes stays for old links */
 
