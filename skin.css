@@ -13,3 +13,13 @@
 
 /* Brand › Exploration: the guidelines page, as tall as its content */
 .brand-frame { display: block; width: 100%; min-height: 70vh; border: 1px solid var(--hub-line); border-radius: 8px; background: #F7F5F0; }
+
+/* Project › Hub design: a Markdown document rendered by tools/hub/build-docs.mjs */
+.hub-doc { max-width: 980px; line-height: 1.55; }
+.hub-doc h2 { margin-top: 2em; } .hub-doc h3 { margin-top: 1.5em; }
+.hub-doc table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+.hub-doc th, .hub-doc td { border: 1px solid var(--hub-line); padding: .4em .6em; text-align: left; vertical-align: top; }
+.hub-doc th { background: var(--hub-soft); }
+.hub-doc pre { background: var(--hub-soft); padding: .8em 1em; overflow-x: auto; border-radius: 6px; font-size: .85em; }
+.hub-doc code { font-size: .92em; }
+.hub-doc hr { border: 0; border-top: 1px solid var(--hub-line); margin: 2em 0; }

@@ -5,9 +5,9 @@ window.HUB_CONFIG = {
   brand: { name: 'Centar DEVA', sub: 'Hub' },
   tokens: { accent: '#B05A47', accentSoft: '#F3E6E1' }, tokensDark: { accent: '#E09A86', accentSoft: '#3A2823' },
   storage: { prefix: 'devacentar-hub' },
-  skin: 'skin.css?v=26eab362f6',
+  skin: 'skin.css?v=16064d51d7',
   modules: ['tables', 'page-frame'],
-  data: ['data/core.js', 'data/website.js', 'data/brand-files.js'],   // brand-files.js: brand/embed.py (the Brand downloads)
+  data: ['data/core.js', 'data/website.js', 'data/brand-files.js', 'data/docs.js'],   // brand-files.js: brand/embed.py (the Brand downloads)
   views: ['views.js', 'trail.js'],
   // the assistant (tools/assistant): on the published hub it talks to Cloud Run and only answers signed-in members;
   // on a local preview it uses the server on this Mac (127.0.0.1:8790)
