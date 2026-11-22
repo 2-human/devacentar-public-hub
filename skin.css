@@ -23,3 +23,31 @@
 .hub-doc pre { background: var(--hub-soft); padding: .8em 1em; overflow-x: auto; border-radius: 6px; font-size: .85em; }
 .hub-doc code { font-size: .92em; }
 .hub-doc hr { border: 0; border-top: 1px solid var(--hub-line); margin: 2em 0; }
+
+/* Project › Hub design › Map: the model map (views.js modelMap, data/hub-model.js) */
+.hm .cv-svg { height: min(78vh, 820px); }
+.hm-mode rect { fill-opacity: .06; stroke-opacity: .45; stroke-width: 1.5; }
+.hm-mt { font: 700 22px/1 var(--hub-font, inherit); }
+.hm-mv { font-size: 12.5px; fill: var(--hub-mute); }
+.hm-chip rect { fill: var(--hub-card); stroke: var(--hub-line); }
+.hm-chip text { font-size: 11.5px; text-anchor: middle; fill: var(--hub-ink); }
+.hm-chip.hm-new rect { stroke-dasharray: 4 3; }
+.hm-n rect { fill: var(--hub-card); stroke-width: 2; }
+.hm-n.hm-new rect { stroke-dasharray: 7 4; }
+.hm-n.hm-reserved rect { stroke-dasharray: 2 4; opacity: .75; }
+.hm-n.hm-reserved text { opacity: .7; }
+.hm-sub rect { stroke-width: 1.5; }
+.hm-nl { font-size: 15px; font-weight: 700; text-anchor: middle; fill: var(--hub-ink); }
+.hm-ni { font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; text-anchor: middle; fill: var(--hub-mute); }
+.hm-e path { fill: none; stroke: var(--hub-mute); stroke-width: 1.4; opacity: .7; }
+.hm-ah { fill: var(--hub-mute); }
+.hm-e rect { fill: var(--hub-card); opacity: .92; }
+.hm-e text { font-size: 11px; text-anchor: middle; fill: var(--hub-mute); }
+.cv-svg.focus .hm-e:not(.on), .cv-svg.focus .hm-n:not(.on) { opacity: .14; }
+.cv-svg.focus .hm-e.on path { stroke: var(--hub-accent); stroke-width: 2.2; opacity: 1; }
+.cv-svg.focus .hm-e.on text { fill: var(--hub-ink); font-weight: 600; }
+.hm-mode, .hm-n { transition: opacity .15s; }
+.hm-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; margin: 4px 0 10px; }
+.hm-key i { display: inline-block; width: 26px; height: 14px; border: 2px solid var(--hub-mute); border-radius: 4px; margin-right: 6px; vertical-align: -2px; }
+.hm-key.hm-new i { border-style: dashed; } .hm-key.hm-reserved i { border-style: dotted; opacity: .75; }
+.hm-lede { max-width: 900px; }
